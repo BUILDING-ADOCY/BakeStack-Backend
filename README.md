@@ -1,0 +1,46 @@
+# BakeStack Backend
+
+Operational backend for BakeStack V1.
+
+## Stack
+
+- NestJS
+- TypeScript
+- Prisma ORM
+- PostgreSQL
+
+## Local Commands
+
+```bash
+npm install
+npm run prisma:generate
+npm run prisma:validate
+npm run prisma:migrate:deploy
+npm run prisma:seed
+npm run typecheck
+npm run lint
+npm test
+npm run test:e2e
+npm run build
+npm run dev
+```
+
+## Environment
+
+Copy `.env.example` to `.env`.
+
+Required variables:
+
+- `DATABASE_URL`
+- `CORS_ORIGINS`
+- `SECURITY_BASE_URL`
+- `SECURITY_INTERNAL_SERVICE_API_KEY`
+- `PORT`
+- `HOST`
+
+## Runtime Notes
+
+- `/health` is the liveness endpoint.
+- `/health/ready` performs database and security-service readiness checks.
+- Auth/session flows are proxied to `OUTREACH SECURITY`.
+- Authenticated requests derive tenant scope from the security session; client-supplied `tenantId` is not trusted as the source of truth.
