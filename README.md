@@ -44,3 +44,10 @@ Required variables:
 - `/health/ready` performs database and security-service readiness checks.
 - Auth/session flows are proxied to `OUTREACH SECURITY`.
 - Authenticated requests derive tenant scope from the security session; client-supplied `tenantId` is not trusted as the source of truth.
+
+## Railway Production Notes
+
+- Attach a PostgreSQL service to the backend service, or set `DATABASE_URL` manually.
+- Railway can inject `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, and `PGDATABASE`; the backend now derives `DATABASE_URL` from those if needed.
+- If you use a separate security deployment, set `SECURITY_BASE_URL` to the private or public URL that the backend can actually reach.
+- Make sure the backend service is redeployed after the database variables are linked or rotated.

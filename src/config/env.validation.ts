@@ -1,7 +1,6 @@
 type BackendEnv = Record<string, string | undefined>;
 
 const REQUIRED_KEYS = [
-  'DATABASE_URL',
   'SECURITY_BASE_URL',
   'SECURITY_INTERNAL_SERVICE_API_KEY',
 ];
@@ -29,7 +28,46 @@ const assertNumber = (
   return parsed;
 };
 
+const trimOptional = (value?: string) => value?.trim() || undefined;
+
+const resolveDatabaseUrl = (env: BackendEnv) => {
+  const explicitUrl =
+    trimOptional(env.DATABASE_URL) ||
+    trimOptional(env.DATABASE_PRIVATE_URL) ||
+    trimOptional(env.DATABASE_PUBLIC_URL) ||
+    trimOptional(env.POSTGRES_URL) ||
+    trimOptional(env.POSTGRES_PRISMA_URL) ||
+    trimOptional(env.POSTGRES_URL_NON_POOLING);
+
+  if (explicitUrl) {
+    return explicitUrl;
+  }
+
+  const host = trimOptional(env.PGHOST);
+  const port = trimOptional(env.PGPORT);
+  const user = trimOptional(env.PGUSER);
+  const password = trimOptional(env.PGPASSWORD);
+  const database = trimOptional(env.PGDATABASE);
+
+  if (host && port && user && password && database) {
+    const params = new URLSearchParams();
+    const sslMode = trimOptional(env.PGSSLMODE);
+
+    if (sslMode) {
+      params.set('sslmode', sslMode);
+    }
+
+    return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}${params.size ? `?${params.toString()}` : ''}`;
+  }
+
+  throw new Error(
+    'Missing required database configuration. Set DATABASE_URL or provide Railway PostgreSQL variables (PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE).',
+  );
+};
+
 export const validateEnv = (rawEnv: BackendEnv) => {
+  const databaseUrl = resolveDatabaseUrl(rawEnv);
+
   for (const key of REQUIRED_KEYS) {
     assertNonEmpty(rawEnv, key);
   }
@@ -37,8 +75,12 @@ export const validateEnv = (rawEnv: BackendEnv) => {
   const port = assertNumber(rawEnv, 'PORT', '3010');
   const nodeEnv = rawEnv.NODE_ENV?.trim() || 'development';
 
+  rawEnv.DATABASE_URL = databaseUrl;
+  process.env.DATABASE_URL = databaseUrl;
+
   return {
     ...rawEnv,
+    DATABASE_URL: databaseUrl,
     NODE_ENV: nodeEnv,
     PORT: String(port),
     HOST: rawEnv.HOST?.trim() || '0.0.0.0',
