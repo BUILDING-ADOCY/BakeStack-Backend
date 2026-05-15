@@ -44,6 +44,7 @@ Required variables:
 - `/health/ready` performs database and security-service readiness checks.
 - Auth/session flows are proxied to `OUTREACH SECURITY`.
 - Authenticated requests derive tenant scope from the security session; client-supplied `tenantId` is not trusted as the source of truth.
+- Railway deployment setup is documented in [RAILWAY_ENV_SETUP.md](/Users/surajmahapatra/Documents/PROJECT%20BAKESTACK%202/BAKESTACK%20BACKEND/RAILWAY_ENV_SETUP.md).
 
 ## Railway Production Notes
 
