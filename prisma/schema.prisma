@@ -329,6 +329,7 @@ model User {
   recipeCreated             Recipe[]             @relation("RecipeCreatedBy")
   roleAssignments           UserRoleAssignment[]
   wasteEventsRecorded       WasteEvent[]         @relation("WasteRecordedBy")
+  wasteEventsVoided         WasteEvent[]         @relation("WasteVoidedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -1058,6 +1059,9 @@ model WasteEvent {
   notes             String?
   costImpact        Decimal          @db.Decimal(14, 4)
   recordedById      String?          @db.Uuid
+  voidedAt          DateTime?
+  voidedById        String?          @db.Uuid
+  voidReason        String?
   createdAt         DateTime         @default(now())
   inventoryItem     InventoryItem    @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
   location          Location         @relation(fields: [locationId], references: [id], onDelete: Cascade)
@@ -1065,10 +1069,12 @@ model WasteEvent {
   productionBatch   ProductionBatch? @relation(fields: [productionBatchId], references: [id], onDelete: SetNull)
   recordedBy        User?            @relation("WasteRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
   tenant            Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  voidedBy          User?            @relation("WasteVoidedBy", fields: [voidedById], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([tenantId, locationId])
   @@index([tenantId, reasonCode])
+  @@index([tenantId, voidedAt])
 }
 
 model QCCheck {
