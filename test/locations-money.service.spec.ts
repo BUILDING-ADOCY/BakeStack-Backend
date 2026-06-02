@@ -123,6 +123,32 @@ describe('LocationsService money foundation', () => {
     });
   });
 
+  it('creates additional tenant stores as secondary locations by default', async () => {
+    const prisma = buildPrisma();
+    prisma.location.count.mockResolvedValue(1);
+    const service = new LocationsService(
+      prisma as any,
+      {
+        log: jest.fn(),
+      } as any,
+    );
+
+    const created = await service.create('tenant-1', 'user-1', 'corr-1', {
+      name: 'Downtown Cafe',
+      type: 'CAFE' as any,
+      city: 'Pune',
+      state: 'Maharashtra',
+      countryCode: 'IN',
+    });
+
+    expect(created).toMatchObject({
+      tenantId: 'tenant-1',
+      name: 'Downtown Cafe',
+      isPrimary: false,
+    });
+    expect(prisma.location.updateMany).not.toHaveBeenCalled();
+  });
+
   it('locks a location currency after operational activity exists', async () => {
     const prisma = buildPrisma();
     prisma.inventoryMovement.count.mockResolvedValue(1);

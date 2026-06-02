@@ -15,7 +15,7 @@ import {
 export class CreateLocationDto {
   @IsOptional()
   @IsUUID()
-  tenantId!: string;
+  tenantId?: string;
 
   @IsString()
   name!: string;
