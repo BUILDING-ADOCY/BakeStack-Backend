@@ -14,7 +14,7 @@ describe('ProductionService', () => {
         update: jest.fn().mockResolvedValue({ id: 'batch-1' }),
       },
       inventoryBalance: {
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn().mockResolvedValue({
           id: 'balance-1',
           onHandQty: new Prisma.Decimal(10),
@@ -26,6 +26,22 @@ describe('ProductionService', () => {
       },
       inventoryMovement: {
         create: jest.fn().mockResolvedValue({ id: 'movement-1' }),
+      },
+      location: {
+        findFirst: jest.fn().mockResolvedValue({ currencyCode: 'INR' }),
+      },
+      locationInventoryItemSetting: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            inventoryItemId: 'item-1',
+            unitCost: new Prisma.Decimal(2),
+            currencyCode: 'INR',
+          },
+        ]),
+        findUnique: jest.fn().mockResolvedValue({
+          unitCost: new Prisma.Decimal(2),
+        }),
+        upsert: jest.fn(),
       },
       inventoryLot: {
         create: jest.fn().mockResolvedValue({ id: 'lot-1' }),
@@ -70,6 +86,7 @@ describe('ProductionService', () => {
           id: 'consumption-1',
           inventoryItemId: 'item-1',
           requiredQty: new Prisma.Decimal(5),
+          unitCost: new Prisma.Decimal(2),
           inventoryItem: { unitCost: new Prisma.Decimal(2) },
         },
       ],
@@ -99,6 +116,7 @@ describe('ProductionService', () => {
       id: 'batch-1',
       tenantId: 'tenant-1',
       locationId: 'location-1',
+      currencyCode: 'INR',
       plannedQty: new Prisma.Decimal(12),
       status: 'IN_PROGRESS',
       recipe: {

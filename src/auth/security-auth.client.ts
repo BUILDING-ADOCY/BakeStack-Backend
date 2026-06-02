@@ -196,6 +196,11 @@ export class SecurityAuthClient {
   async validateRequestSession(
     request: Request,
   ): Promise<SecuritySessionValidationResponse> {
+    const appwriteSession = await this.validateAppwriteJwt(request);
+    if (appwriteSession) {
+      return appwriteSession;
+    }
+
     if (!this.hasSessionMaterial(request)) {
       return this.buildAnonymousSession();
     }
@@ -487,5 +492,245 @@ export class SecurityAuthClient {
     return configuredBaseUrl.endsWith('/')
       ? configuredBaseUrl
       : `${configuredBaseUrl}/`;
+  }
+
+  private async validateAppwriteJwt(
+    request: Request,
+  ): Promise<SecuritySessionValidationResponse | null> {
+    const jwt = this.extractBearerToken(request);
+    const authorization = request.header('authorization')?.trim();
+    const endpoint = this.configService
+      .get<string>('APPWRITE_ENDPOINT')
+      ?.trim();
+    const projectId = this.configService
+      .get<string>('APPWRITE_PROJECT_ID')
+      ?.trim();
+
+    if (!endpoint || !projectId || !this.isBearerAuthorization(authorization)) {
+      return null;
+    }
+
+    if (!jwt) {
+      throw new DomainException(
+        'SECURITY_UNAUTHORIZED',
+        'Invalid Appwrite bearer token',
+        401,
+      );
+    }
+
+    try {
+      const user = await this.appwriteRequest<{
+        $id: string;
+        name?: string;
+        email: string;
+        phone?: string;
+        status: boolean;
+        emailVerification?: boolean;
+        phoneVerification?: boolean;
+        $updatedAt?: string;
+      }>({
+        endpoint,
+        projectId,
+        jwt,
+        path: '/account',
+      });
+      const teams = await this.appwriteRequest<{
+        teams: Array<{
+          $id: string;
+          name: string;
+        }>;
+      }>({
+        endpoint,
+        projectId,
+        jwt,
+        path: '/teams',
+      });
+      const team = teams.teams[0] ?? null;
+      const membership = team
+        ? await this.findAppwriteMembership({
+            endpoint,
+            projectId,
+            jwt,
+            teamId: team.$id,
+            userId: user.$id,
+          })
+        : null;
+      const roles = this.mapAppwriteRoles(membership?.roles ?? ['owner']);
+      const displayName = user.name?.trim() || user.email.split('@')[0] || '';
+      const [firstName, ...lastNameParts] = displayName.split(/\s+/);
+      const now = new Date();
+
+      return {
+        valid: Boolean(team),
+        session: team
+          ? {
+              id: `appwrite:${user.$id}`,
+              expiresAt: new Date(now.getTime() + 15 * 60 * 1000).toISOString(),
+              restricted: false,
+              lastSeenAt: now.toISOString(),
+            }
+          : null,
+        user: team
+          ? {
+              id: user.$id,
+              email: user.email,
+              firstName: firstName || null,
+              lastName: lastNameParts.join(' ') || null,
+              phoneNumber: user.phone || null,
+              emailVerifiedAt: user.emailVerification
+                ? (user.$updatedAt ?? now.toISOString())
+                : null,
+              phoneVerifiedAt: user.phoneVerification
+                ? (user.$updatedAt ?? now.toISOString())
+                : null,
+              status: user.status ? 'ACTIVE' : 'SUSPENDED',
+            }
+          : null,
+        organization: team
+          ? {
+              id: team.$id,
+              name: team.name,
+              slug: this.slugify(team.name),
+              status: 'ACTIVE',
+              primaryEmail: user.email,
+              primaryPhone: user.phone || null,
+              acceptedTermsAt: null,
+            }
+          : null,
+        roles,
+        memberships:
+          team && membership
+            ? [
+                {
+                  id: membership.$id,
+                  organizationId: team.$id,
+                  role: roles[0] ?? 'merchant_staff',
+                  status: membership.confirm ? 'ACTIVE' : 'PENDING',
+                },
+              ]
+            : [],
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Appwrite JWT validation failed: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      throw error;
+    }
+  }
+
+  private async findAppwriteMembership({
+    endpoint,
+    projectId,
+    jwt,
+    teamId,
+    userId,
+  }: {
+    endpoint: string;
+    projectId: string;
+    jwt: string;
+    teamId: string;
+    userId: string;
+  }) {
+    const memberships = await this.appwriteRequest<{
+      memberships: Array<{
+        $id: string;
+        userId: string;
+        roles: string[];
+        confirm: boolean;
+      }>;
+    }>({
+      endpoint,
+      projectId,
+      jwt,
+      path: `/teams/${encodeURIComponent(teamId)}/memberships`,
+    });
+
+    return (
+      memberships.memberships.find(
+        (membership) => membership.userId === userId,
+      ) ?? null
+    );
+  }
+
+  private async appwriteRequest<T>({
+    endpoint,
+    projectId,
+    jwt,
+    path,
+  }: {
+    endpoint: string;
+    projectId: string;
+    jwt: string;
+    path: string;
+  }): Promise<T> {
+    const url = new URL(
+      path.replace(/^\//, ''),
+      endpoint.endsWith('/') ? endpoint : `${endpoint}/`,
+    );
+    let response: globalThis.Response;
+
+    try {
+      response = await fetch(url, {
+        headers: {
+          accept: 'application/json',
+          'x-appwrite-project': projectId,
+          'x-appwrite-jwt': jwt,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Appwrite authentication request failed for ${path}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      throw new ServiceUnavailableException(
+        'Appwrite authentication is currently unavailable',
+      );
+    }
+
+    const payload = await this.readPayload(response);
+
+    if (!response.ok) {
+      throw this.buildUpstreamException(response.status, payload);
+    }
+
+    return payload as T;
+  }
+
+  private extractBearerToken(request: Request): string | null {
+    const authorization = request.header('authorization')?.trim();
+    if (!authorization?.toLowerCase().startsWith('bearer ')) {
+      return null;
+    }
+
+    const token = authorization.replace(/^bearer\s+/i, '').trim();
+    return token || null;
+  }
+
+  private isBearerAuthorization(authorization?: string): boolean {
+    return Boolean(authorization && /^bearer(?:\s|$)/i.test(authorization));
+  }
+
+  private mapAppwriteRoles(roles: string[]): string[] {
+    if (roles.includes('platform_admin')) return ['platform_admin'];
+    if (roles.includes('owner') || roles.includes('merchant_owner')) {
+      return ['merchant_owner'];
+    }
+    if (roles.includes('admin') || roles.includes('merchant_admin')) {
+      return ['merchant_admin'];
+    }
+    return ['merchant_staff'];
+  }
+
+  private slugify(value: string): string {
+    return (
+      value
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'appwrite-organization'
+    );
   }
 }

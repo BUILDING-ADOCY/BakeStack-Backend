@@ -10,7 +10,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsNumber, Min } from 'class-validator';
+import { IsNumber, IsUUID, Min } from 'class-validator';
 import type { Request } from 'express';
 import { OptionalTenantScopeDto } from '../common/dto/optional-tenant-scope.dto';
 import { resolveTenantId } from '../common/utils/resolve-tenant-id';
@@ -20,6 +20,9 @@ import { UpdateRecipeDto } from './dto/update-recipe.dto';
 import { RecipesService } from './recipes.service';
 
 class RecipeCostingQueryDto extends OptionalTenantScopeDto {
+  @IsUUID()
+  locationId!: string;
+
   @Type(() => Number)
   @IsNumber()
   @Min(0.0001)
@@ -106,7 +109,11 @@ export class RecipesController {
 
     return {
       data: {
-        costing: await this.recipesService.calculateRecipeCost(tenantId, id),
+        costing: await this.recipesService.calculateRecipeCost(
+          tenantId,
+          id,
+          query.locationId,
+        ),
         requiredIngredients:
           await this.recipesService.calculateRequiredIngredients(
             tenantId,

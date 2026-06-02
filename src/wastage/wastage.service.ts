@@ -4,6 +4,7 @@ import { createHash } from 'crypto';
 import { AuditService } from '../audit/audit.service';
 import { DomainException } from '../common/exceptions/domain.exception';
 import * as inventoryLedger from '../common/prisma/inventory-ledger';
+import { requireInventoryItemMoneySettings } from '../common/prisma/location-money';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { decimal } from '../common/utils/decimal.util';
 import { IdempotencyService } from '../idempotency/idempotency.service';
@@ -690,6 +691,7 @@ export class WastageService {
         reasonCode: dto.reasonCode,
         notes: dto.notes,
         costImpact,
+        currencyCode: basis.currencyCode,
         recordedById: actorId,
       },
     });
@@ -701,6 +703,7 @@ export class WastageService {
       lotId: basis.ledgerLotId,
       quantityDelta: quantity.negated(),
       unitCost: basis.unitCost,
+      currencyCode: basis.currencyCode,
       movementType: InventoryMovementType.WASTAGE,
       referenceType: 'WasteEvent',
       referenceId: event.id,
@@ -734,7 +737,12 @@ export class WastageService {
     dto: CreateWasteEventDto,
     quantity: Prisma.Decimal,
   ) {
-    const [location, item] = await Promise.all([
+    const [{ currencyCode, settings }, location, item] = await Promise.all([
+      requireInventoryItemMoneySettings(executor, {
+        tenantId,
+        locationId: dto.locationId,
+        inventoryItemIds: [dto.inventoryItemId],
+      }),
       executor.location.findFirst({
         where: {
           tenantId,
@@ -750,6 +758,7 @@ export class WastageService {
         },
       }),
     ]);
+    const locationSetting = settings.get(dto.inventoryItemId)!;
 
     if (!location || !item) {
       throw new DomainException(
@@ -836,8 +845,9 @@ export class WastageService {
           executor,
           tenantId,
           lot.id,
-          item.unitCost,
+          locationSetting.unitCost!,
         ),
+        currencyCode,
         ledgerLotId: lot.id,
       };
     }
@@ -863,7 +873,8 @@ export class WastageService {
     }
 
     return {
-      unitCost: item.unitCost,
+      unitCost: locationSetting.unitCost!,
+      currencyCode,
       ledgerLotId: ledgerBalance.lotId,
     };
   }

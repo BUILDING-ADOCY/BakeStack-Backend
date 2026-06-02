@@ -1,3 +1,4 @@
+import { ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
 import { DomainException } from '../src/common/exceptions/domain.exception';
@@ -40,19 +41,24 @@ function createUpstreamResponse({
   } as unknown as globalThis.Response;
 }
 
+function createClient(config: Record<string, string> = {}): SecurityAuthClient {
+  return new SecurityAuthClient(
+    new ConfigService({
+      SECURITY_BASE_URL: 'http://localhost:4001',
+      SECURITY_INTERNAL_SERVICE_API_KEY:
+        'bakestake_internal_service_key_dev_2026',
+      SECURITY_INTERNAL_SERVICE_NAME: 'bakestake-backend',
+      SECURITY_SESSION_COOKIE_NAME: 'bk_session',
+      ...config,
+    }),
+  );
+}
+
 describe('SecurityAuthClient', () => {
   let client: SecurityAuthClient;
 
   beforeEach(() => {
-    client = new SecurityAuthClient(
-      new ConfigService({
-        SECURITY_BASE_URL: 'http://localhost:4001',
-        SECURITY_INTERNAL_SERVICE_API_KEY:
-          'bakestake_internal_service_key_dev_2026',
-        SECURITY_INTERNAL_SERVICE_NAME: 'bakestake-backend',
-        SECURITY_SESSION_COOKIE_NAME: 'bk_session',
-      }),
-    );
+    client = createClient();
   });
 
   afterEach(() => {
@@ -153,5 +159,81 @@ describe('SecurityAuthClient', () => {
         message: 'Invalid credentials',
       }),
     );
+  });
+
+  it('fails closed without legacy fallback when Appwrite rejects a bearer JWT', async () => {
+    client = createClient({
+      APPWRITE_ENDPOINT: 'https://appwrite.example.test/v1',
+      APPWRITE_PROJECT_ID: 'project-1',
+    });
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue(
+      createUpstreamResponse({
+        ok: false,
+        status: 401,
+        payload: {
+          message: 'Invalid JWT',
+        },
+      }),
+    );
+
+    await expect(
+      client.validateRequestSession(
+        createRequest({
+          authorization: 'Bearer invalid-jwt',
+        }),
+      ),
+    ).rejects.toEqual(
+      expect.objectContaining<Partial<DomainException>>({
+        code: 'SECURITY_UNAUTHORIZED',
+        message: 'Invalid JWT',
+        status: 401,
+      }),
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0]?.[0].toString()).toBe(
+      'https://appwrite.example.test/v1/account',
+    );
+  });
+
+  it('fails closed before fallback when an Appwrite bearer token is empty', async () => {
+    client = createClient({
+      APPWRITE_ENDPOINT: 'https://appwrite.example.test/v1',
+      APPWRITE_PROJECT_ID: 'project-1',
+    });
+    const fetchSpy = jest.spyOn(global, 'fetch');
+
+    await expect(
+      client.validateRequestSession(
+        createRequest({
+          authorization: 'Bearer ',
+        }),
+      ),
+    ).rejects.toEqual(
+      expect.objectContaining<Partial<DomainException>>({
+        code: 'SECURITY_UNAUTHORIZED',
+        message: 'Invalid Appwrite bearer token',
+        status: 401,
+      }),
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('fails closed without legacy fallback when Appwrite validation is unavailable', async () => {
+    client = createClient({
+      APPWRITE_ENDPOINT: 'https://appwrite.example.test/v1',
+      APPWRITE_PROJECT_ID: 'project-1',
+    });
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockRejectedValue(new Error('connection refused'));
+
+    await expect(
+      client.validateRequestSession(
+        createRequest({
+          authorization: 'Bearer appwrite-jwt',
+        }),
+      ),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { DomainException } from '../common/exceptions/domain.exception';
+import { requireInventoryItemMoneySettings } from '../common/prisma/location-money';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { decimal } from '../common/utils/decimal.util';
 import { CreateRecipeDto } from './dto/create-recipe.dto';
@@ -218,13 +219,27 @@ export class RecipesService {
     });
   }
 
-  async calculateRecipeCost(tenantId: string, recipeId: string) {
+  async calculateRecipeCost(
+    tenantId: string,
+    recipeId: string,
+    locationId: string,
+  ) {
     const recipe = await this.findRecipeForCalculation(tenantId, recipeId);
+    const { currencyCode, settings } = await requireInventoryItemMoneySettings(
+      this.prisma,
+      {
+        tenantId,
+        locationId,
+        inventoryItemIds: recipe.components.map(
+          (component) => component.inventoryItemId,
+        ),
+      },
+    );
     const costPerBatch = recipe.components.reduce(
       (accumulator, component) =>
         accumulator.add(
           component.quantity
-            .mul(component.inventoryItem.unitCost)
+            .mul(settings.get(component.inventoryItemId)!.unitCost!)
             .mul(decimal(1).add(component.lossFactorPercent.div(decimal(100)))),
         ),
       decimal(0),
@@ -232,6 +247,8 @@ export class RecipesService {
 
     return {
       recipeId: recipe.id,
+      locationId,
+      currencyCode,
       costPerBatch,
       costPerYieldUnit: costPerBatch.div(recipe.batchYieldQty),
       yieldUom: recipe.yieldUom,

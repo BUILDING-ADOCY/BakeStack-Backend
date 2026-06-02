@@ -1,6 +1,8 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
+import { AuthenticatedGuard } from './auth/authenticated.guard';
 import { AuditModule } from './audit/audit.module';
 import { BusinessProfileModule } from './business-profile/business-profile.module';
 import { RequestContextMiddleware } from './common/middleware/request-context.middleware';
@@ -11,6 +13,7 @@ import { IdempotencyModule } from './idempotency/idempotency.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { LocationsModule } from './locations/locations.module';
+import { MetadataModule } from './metadata/metadata.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { ProcurementModule } from './procurement/procurement.module';
 import { ProductsModule } from './products/products.module';
@@ -39,6 +42,7 @@ import { validateEnv } from './config/env.validation';
     BusinessProfileModule,
     TenantsModule,
     LocationsModule,
+    MetadataModule,
     OnboardingModule,
     UsersModule,
     RolesModule,
@@ -54,6 +58,12 @@ import { validateEnv } from './config/env.validation';
     WastageModule,
     IntegrationsModule,
     IdempotencyModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: AuthenticatedGuard,
+    },
   ],
 })
 export class AppModule implements NestModule {

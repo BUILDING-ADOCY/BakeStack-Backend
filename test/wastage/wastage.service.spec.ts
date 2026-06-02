@@ -36,6 +36,7 @@ describe('WastageService', () => {
           tenantId: baseEvent.tenantId,
           isActive: true,
           name: 'Main Store',
+          currencyCode: 'INR',
         }),
         findMany: jest
           .fn()
@@ -81,6 +82,15 @@ describe('WastageService', () => {
       },
       inventoryMovement: {
         findMany: jest.fn().mockResolvedValue([]),
+      },
+      locationInventoryItemSetting: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            inventoryItemId: baseEvent.inventoryItemId,
+            unitCost: new Prisma.Decimal(5),
+            currencyCode: 'INR',
+          },
+        ]),
       },
       productionBatch: {
         findFirst: jest.fn().mockResolvedValue(null),

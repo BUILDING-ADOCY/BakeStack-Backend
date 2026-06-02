@@ -55,6 +55,19 @@ describe('InventoryService', () => {
       inventoryMovement: {
         create: jest.fn().mockResolvedValue({ id: 'movement-1' }),
       },
+      locationInventoryItemSetting: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            inventoryItemId: 'item-1',
+            unitCost: new Prisma.Decimal(2.5),
+            currencyCode: 'INR',
+          },
+        ]),
+        findUnique: jest.fn().mockResolvedValue({
+          unitCost: new Prisma.Decimal(2.5),
+        }),
+        upsert: jest.fn(),
+      },
       inventoryImport: {
         create: jest.fn().mockResolvedValue({
           id: 'import-1',
@@ -94,6 +107,7 @@ describe('InventoryService', () => {
           id: 'location-1',
           tenantId: 'tenant-1',
           name: 'Main Kitchen',
+          currencyCode: 'INR',
         }),
       },
       wasteEvent: {

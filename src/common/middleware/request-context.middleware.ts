@@ -4,6 +4,8 @@ import { randomUUID } from 'crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { IdentityProvisioningService } from '../../auth/identity-provisioning.service';
 import { SecurityAuthClient } from '../../auth/security-auth.client';
+import { DomainException } from '../exceptions/domain.exception';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class RequestContextMiddleware implements NestMiddleware {
@@ -13,6 +15,7 @@ export class RequestContextMiddleware implements NestMiddleware {
     private readonly configService: ConfigService,
     private readonly securityAuthClient: SecurityAuthClient,
     private readonly identityProvisioningService: IdentityProvisioningService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async use(
@@ -49,9 +52,19 @@ export class RequestContextMiddleware implements NestMiddleware {
           );
         request.provisionedIdentity = provisioned;
         request.context.tenantId = provisioned.tenant.id;
+        request.context.actorId = provisioned.user.id;
         this.syncTenantScope(request, provisioned.tenant.id);
+        await this.assertLocationScope(
+          request,
+          provisioned.tenant.id,
+          provisioned.user.id,
+        );
       }
     } catch (error) {
+      if (error instanceof DomainException) {
+        next(error);
+        return;
+      }
       this.logger.warn(
         `Skipping security session hydration for correlationId=${correlationId}: ${
           error instanceof Error ? error.message : 'unknown error'
@@ -62,6 +75,68 @@ export class RequestContextMiddleware implements NestMiddleware {
 
     response.setHeader('x-correlation-id', correlationId);
     next();
+  }
+
+  private async assertLocationScope(
+    request: Request,
+    tenantId: string,
+    userId: string,
+  ): Promise<void> {
+    const locationIds = [
+      request.context.locationId,
+      this.readString(this.asMutableRecord(request.query), 'locationId'),
+      this.readString(this.asMutableRecord(request.body), 'locationId'),
+    ].filter((value): value is string => Boolean(value));
+    const uniqueLocationIds = [...new Set(locationIds)];
+    const locationId = uniqueLocationIds[0];
+
+    if (!locationId) {
+      return;
+    }
+
+    if (uniqueLocationIds.length > 1) {
+      throw new DomainException(
+        'LOCATION_SCOPE_MISMATCH',
+        'Request location scopes must match.',
+        403,
+        { locationIds: uniqueLocationIds },
+      );
+    }
+
+    const now = new Date();
+    const [location, assignment] = await Promise.all([
+      this.prisma.location.findFirst({
+        where: { tenantId, id: locationId, isActive: true },
+        select: { id: true },
+      }),
+      this.prisma.userRoleAssignment.findFirst({
+        where: {
+          tenantId,
+          userId,
+          effectiveFrom: { lte: now },
+          AND: [
+            {
+              OR: [{ effectiveTo: null }, { effectiveTo: { gt: now } }],
+            },
+            {
+              OR: [{ locationId: null }, { locationId }],
+            },
+          ],
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    if (!location || !assignment) {
+      throw new DomainException(
+        'LOCATION_ACCESS_DENIED',
+        'You do not have access to this location.',
+        403,
+        { locationId },
+      );
+    }
+
+    request.context.locationId = locationId;
   }
 
   private syncTenantScope(request: Request, tenantId: string): void {
@@ -102,5 +177,13 @@ export class RequestContextMiddleware implements NestMiddleware {
     }
 
     return value as Record<string, unknown>;
+  }
+
+  private readString(
+    record: Record<string, unknown> | undefined,
+    key: string,
+  ): string | undefined {
+    const value = record?.[key];
+    return typeof value === 'string' && value ? value : undefined;
   }
 }

@@ -13,6 +13,7 @@ import {
   InventoryDeltaInput,
   InventoryExecutor,
 } from '../common/prisma/inventory-ledger';
+import { requireInventoryItemMoneySettings } from '../common/prisma/location-money';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { decimal } from '../common/utils/decimal.util';
 import { CreateInventoryAdjustmentDto } from './dto/create-inventory-adjustment.dto';
@@ -407,13 +408,22 @@ export class InventoryService {
     dto: CreateInventoryAdjustmentDto,
     item?: Prisma.InventoryItemGetPayload<Record<string, never>>,
   ) {
-    const resolvedItem =
-      item ??
-      (await this.requireInventoryItem(
+    if (!item) {
+      await this.requireInventoryItem(
         dto.tenantId,
         dto.inventoryItemId,
         executor,
-      ));
+      );
+    }
+    const { currencyCode, settings } = await requireInventoryItemMoneySettings(
+      executor,
+      {
+        tenantId: dto.tenantId,
+        locationId: dto.locationId,
+        inventoryItemIds: [dto.inventoryItemId],
+      },
+    );
+    const unitCost = settings.get(dto.inventoryItemId)!.unitCost!;
     const resolvedLotId =
       dto.adjustmentType === 'DECREASE'
         ? await this.resolveLotIdForReduction(executor, {
@@ -434,7 +444,8 @@ export class InventoryService {
         inventoryItemId: dto.inventoryItemId,
         lotId: resolvedLotId,
         quantityDelta,
-        unitCost: dto.unitCost ?? Number(resolvedItem.unitCost),
+        unitCost: dto.unitCost ?? unitCost,
+        currencyCode,
         movementType:
           dto.movementType ?? InventoryMovementType.STOCK_ADJUSTMENT,
         referenceType: 'InventoryAdjustment',
@@ -527,13 +538,22 @@ export class InventoryService {
     dto: CreateWastageDto,
     item?: Prisma.InventoryItemGetPayload<Record<string, never>>,
   ) {
-    const resolvedItem =
-      item ??
-      (await this.requireInventoryItem(
+    if (!item) {
+      await this.requireInventoryItem(
         dto.tenantId,
         dto.inventoryItemId,
         executor,
-      ));
+      );
+    }
+    const { currencyCode, settings } = await requireInventoryItemMoneySettings(
+      executor,
+      {
+        tenantId: dto.tenantId,
+        locationId: dto.locationId,
+        inventoryItemIds: [dto.inventoryItemId],
+      },
+    );
+    const unitCost = settings.get(dto.inventoryItemId)!.unitCost!;
     const resolvedLotId = await this.resolveLotIdForReduction(executor, {
       tenantId: dto.tenantId,
       locationId: dto.locationId,
@@ -541,7 +561,7 @@ export class InventoryService {
       quantity: dto.quantity,
       lotId: dto.lotId,
     });
-    const costImpact = decimal(dto.quantity).mul(resolvedItem.unitCost);
+    const costImpact = decimal(dto.quantity).mul(unitCost);
 
     const result = await this.recordMovement(
       {
@@ -550,7 +570,8 @@ export class InventoryService {
         inventoryItemId: dto.inventoryItemId,
         lotId: resolvedLotId,
         quantityDelta: -dto.quantity,
-        unitCost: resolvedItem.unitCost,
+        unitCost,
+        currencyCode,
         movementType: InventoryMovementType.WASTAGE,
         referenceType: 'WasteEvent',
         reason: dto.notes ?? dto.reasonCode,
@@ -571,6 +592,7 @@ export class InventoryService {
         reasonCode: dto.reasonCode,
         notes: dto.notes,
         costImpact,
+        currencyCode,
         recordedById: dto.recordedById,
       },
     });

@@ -4,6 +4,7 @@ import { DomainException } from '../common/exceptions/domain.exception';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateSupplierItemDto } from './dto/create-supplier-item.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
+import { UpdateSupplierItemDto } from './dto/update-supplier-item.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 
 @Injectable()
@@ -95,6 +96,40 @@ export class SuppliersService {
         inventoryItem: true,
       },
       orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async updateSupplierItem(
+    tenantId: string,
+    id: string,
+    dto: UpdateSupplierItemDto,
+  ) {
+    const supplierItem = await this.prisma.supplierItem.findFirst({
+      where: { tenantId, id },
+    });
+
+    if (!supplierItem) {
+      throw new DomainException(
+        'SUPPLIER_ITEM_NOT_FOUND',
+        'Supplier item mapping not found',
+        404,
+      );
+    }
+
+    return this.prisma.supplierItem.update({
+      where: { id: supplierItem.id },
+      data: {
+        supplierSku: dto.supplierSku,
+        purchaseUom: dto.purchaseUom,
+        packSize:
+          dto.packSize === undefined
+            ? undefined
+            : new Prisma.Decimal(dto.packSize),
+      },
+      include: {
+        supplier: true,
+        inventoryItem: true,
+      },
     });
   }
 }

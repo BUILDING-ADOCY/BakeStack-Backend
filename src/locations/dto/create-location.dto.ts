@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Length,
 } from 'class-validator';
 
 export class CreateLocationDto {
@@ -48,6 +49,11 @@ export class CreateLocationDto {
   @IsOptional()
   @IsString()
   country?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(2, 2)
+  countryCode?: string;
 
   @IsOptional()
   @Type(() => Number)

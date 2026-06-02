@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
+import { Public } from './public.decorator';
 import {
   EmailRequestDto,
   FirebaseOauthDto,
@@ -23,6 +24,7 @@ import {
   VerifyStepUpDto,
 } from './auth.dto';
 
+@Public()
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}

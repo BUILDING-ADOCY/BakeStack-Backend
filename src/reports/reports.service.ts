@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { DomainException } from '../common/exceptions/domain.exception';
+import {
+  requireInventoryItemMoneySettings,
+  requireLocationCurrency,
+} from '../common/prisma/location-money';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { decimal } from '../common/utils/decimal.util';
 import { CloseDailyCloseDto } from './dto/close-daily-close.dto';
@@ -36,6 +40,15 @@ export class ReportsService {
         },
       },
     });
+    const currencyCode = await requireLocationCurrency(this.prisma, dto);
+    await requireInventoryItemMoneySettings(this.prisma, {
+      tenantId: dto.tenantId,
+      locationId: dto.locationId,
+      inventoryItemIds: [
+        ...movements.map((movement) => movement.inventoryItemId),
+        ...wasteEvents.map((event) => event.inventoryItemId),
+      ],
+    });
 
     const cogsTotal = movements
       .filter((movement) => movement.movementType === 'PRODUCTION_CONSUMPTION')
@@ -60,7 +73,30 @@ export class ReportsService {
       grossProfit,
       labourCost,
       netEstimate,
+      currencyCode,
     };
+  }
+
+  async getTenantSummaryByCurrency(tenantId: string) {
+    const buckets = await this.prisma.dailyClose.groupBy({
+      by: ['currencyCode'],
+      where: { tenantId, status: 'CLOSED' },
+      _sum: {
+        salesTotal: true,
+        cogsTotal: true,
+        wasteTotal: true,
+        grossProfit: true,
+        labourCost: true,
+        netEstimate: true,
+      },
+      _count: { _all: true },
+    });
+
+    return buckets.map((bucket) => ({
+      currencyCode: bucket.currencyCode ?? 'UNSPECIFIED',
+      closedDays: bucket._count._all,
+      ...bucket._sum,
+    }));
   }
 
   async findDailyClose(

@@ -14,6 +14,7 @@ import { OptionalTenantScopeDto } from '../common/dto/optional-tenant-scope.dto'
 import { resolveTenantId } from '../common/utils/resolve-tenant-id';
 import { CreateSupplierItemDto } from './dto/create-supplier-item.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
+import { UpdateSupplierItemDto } from './dto/update-supplier-item.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { SuppliersService } from './suppliers.service';
 
@@ -92,6 +93,23 @@ export class SuppliersController {
     return {
       data: await this.suppliersService.createSupplierItem(dto),
       message: 'Supplier item created successfully',
+    };
+  }
+
+  @Patch('supplier-items/:id')
+  async updateSupplierItem(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: OptionalTenantScopeDto,
+    @Body() dto: UpdateSupplierItemDto,
+  ) {
+    return {
+      data: await this.suppliersService.updateSupplierItem(
+        resolveTenantId(request, query.tenantId),
+        id,
+        dto,
+      ),
+      message: 'Supplier item updated successfully',
     };
   }
 }

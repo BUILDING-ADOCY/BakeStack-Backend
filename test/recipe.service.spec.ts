@@ -6,6 +6,12 @@ describe('RecipesService', () => {
     recipe: {
       findFirst: jest.fn(),
     },
+    location: {
+      findFirst: jest.fn(),
+    },
+    locationInventoryItemSetting: {
+      findMany: jest.fn(),
+    },
   } as any;
 
   const auditService = {
@@ -32,10 +38,23 @@ describe('RecipesService', () => {
         },
       ],
     });
+    prisma.location.findFirst.mockResolvedValue({ currencyCode: 'INR' });
+    prisma.locationInventoryItemSetting.findMany.mockResolvedValue([
+      {
+        inventoryItemId: 'item-1',
+        unitCost: new Prisma.Decimal(3),
+        currencyCode: 'INR',
+      },
+    ]);
 
-    const result = await service.calculateRecipeCost('tenant-1', 'recipe-1');
+    const result = await service.calculateRecipeCost(
+      'tenant-1',
+      'recipe-1',
+      'location-1',
+    );
 
     expect(result.recipeId).toBe('recipe-1');
+    expect(result.currencyCode).toBe('INR');
     expect(result.costPerBatch.toString()).toBe('6');
     expect(result.costPerYieldUnit.toString()).toBe('0.6');
   });
