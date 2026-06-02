@@ -87,4 +87,47 @@ describe('RecipesService', () => {
       requiredQty: new Prisma.Decimal(2.5),
     });
   });
+
+  it('returns location-aware itemized costing previews', async () => {
+    prisma.recipe.findFirst.mockResolvedValue({
+      id: 'recipe-1',
+      batchYieldQty: new Prisma.Decimal(10),
+      yieldUom: 'each',
+      components: [
+        {
+          inventoryItemId: 'item-1',
+          quantity: new Prisma.Decimal(2),
+          lossFactorPercent: new Prisma.Decimal(10),
+          uom: 'kg',
+          inventoryItem: { name: 'Flour' },
+        },
+      ],
+    });
+    prisma.location.findFirst.mockResolvedValue({ currencyCode: 'INR' });
+    prisma.locationInventoryItemSetting.findMany.mockResolvedValue([
+      {
+        inventoryItemId: 'item-1',
+        unitCost: new Prisma.Decimal(3),
+        currencyCode: 'INR',
+      },
+    ]);
+
+    const result = await service.calculateRecipeCosting(
+      'tenant-1',
+      'recipe-1',
+      'location-1',
+      5,
+    );
+
+    expect(result.costing.costPerBatch.toString()).toBe('6.6');
+    expect(result.costing.costPerYieldUnit.toString()).toBe('0.66');
+    expect(result.requiredIngredients[0]).toMatchObject({
+      inventoryItemId: 'item-1',
+      inventoryItemName: 'Flour',
+      uom: 'kg',
+      requiredQty: new Prisma.Decimal(1),
+      unitCost: new Prisma.Decimal(3),
+      totalCost: new Prisma.Decimal(3.3),
+    });
+  });
 });

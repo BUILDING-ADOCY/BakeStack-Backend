@@ -108,19 +108,12 @@ export class RecipesController {
     const tenantId = resolveTenantId(request, query.tenantId);
 
     return {
-      data: {
-        costing: await this.recipesService.calculateRecipeCost(
-          tenantId,
-          id,
-          query.locationId,
-        ),
-        requiredIngredients:
-          await this.recipesService.calculateRequiredIngredients(
-            tenantId,
-            id,
-            query.plannedQty,
-          ),
-      },
+      data: await this.recipesService.calculateRecipeCosting(
+        tenantId,
+        id,
+        query.locationId,
+        query.plannedQty,
+      ),
       message: 'Recipe costing calculated successfully',
     };
   }

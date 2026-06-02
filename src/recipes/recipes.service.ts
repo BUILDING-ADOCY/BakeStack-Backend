@@ -224,6 +224,22 @@ export class RecipesService {
     recipeId: string,
     locationId: string,
   ) {
+    const preview = await this.calculateRecipeCosting(
+      tenantId,
+      recipeId,
+      locationId,
+      1,
+    );
+
+    return preview.costing;
+  }
+
+  async calculateRecipeCosting(
+    tenantId: string,
+    recipeId: string,
+    locationId: string,
+    plannedQty: number,
+  ) {
     const recipe = await this.findRecipeForCalculation(tenantId, recipeId);
     const { currencyCode, settings } = await requireInventoryItemMoneySettings(
       this.prisma,
@@ -244,14 +260,33 @@ export class RecipesService {
         ),
       decimal(0),
     );
+    const requiredIngredients = this.scaleRequiredIngredients(
+      recipe.components,
+      recipe.batchYieldQty,
+      plannedQty,
+    ).map((ingredient) => {
+      const unitCost = settings.get(ingredient.inventoryItemId)!.unitCost!;
+      const totalCost = ingredient.requiredQty
+        .mul(unitCost)
+        .mul(decimal(1).add(ingredient.lossFactorPercent.div(decimal(100))));
+
+      return {
+        ...ingredient,
+        unitCost,
+        totalCost,
+      };
+    });
 
     return {
-      recipeId: recipe.id,
-      locationId,
-      currencyCode,
-      costPerBatch,
-      costPerYieldUnit: costPerBatch.div(recipe.batchYieldQty),
-      yieldUom: recipe.yieldUom,
+      costing: {
+        recipeId: recipe.id,
+        locationId,
+        currencyCode,
+        costPerBatch,
+        costPerYieldUnit: costPerBatch.div(recipe.batchYieldQty),
+        yieldUom: recipe.yieldUom,
+      },
+      requiredIngredients,
     };
   }
 
@@ -261,13 +296,32 @@ export class RecipesService {
     plannedQty: number,
   ) {
     const recipe = await this.findRecipeForCalculation(tenantId, recipeId);
+
+    return this.scaleRequiredIngredients(
+      recipe.components,
+      recipe.batchYieldQty,
+      plannedQty,
+    );
+  }
+
+  private scaleRequiredIngredients(
+    components: Array<{
+      inventoryItemId: string;
+      inventoryItem: { name: string };
+      quantity: Prisma.Decimal;
+      uom: string;
+      lossFactorPercent: Prisma.Decimal;
+    }>,
+    batchYieldQty: Prisma.Decimal,
+    plannedQty: number,
+  ) {
     const planned = decimal(plannedQty);
 
-    return recipe.components.map((component) => ({
+    return components.map((component) => ({
       inventoryItemId: component.inventoryItemId,
       inventoryItemName: component.inventoryItem.name,
       uom: component.uom,
-      requiredQty: component.quantity.mul(planned).div(recipe.batchYieldQty),
+      requiredQty: component.quantity.mul(planned).div(batchYieldQty),
       lossFactorPercent: component.lossFactorPercent,
     }));
   }
