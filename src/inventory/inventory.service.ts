@@ -16,6 +16,7 @@ import {
 import { requireInventoryItemMoneySettings } from '../common/prisma/location-money';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { decimal } from '../common/utils/decimal.util';
+import { rateTimesQtyToMinor } from '../common/utils/money.util';
 import { CreateInventoryAdjustmentDto } from './dto/create-inventory-adjustment.dto';
 import { CreateInventoryImportDto } from './dto/create-inventory-import.dto';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
@@ -561,7 +562,7 @@ export class InventoryService {
       quantity: dto.quantity,
       lotId: dto.lotId,
     });
-    const costImpact = decimal(dto.quantity).mul(unitCost);
+    const costImpact = rateTimesQtyToMinor(unitCost, dto.quantity);
 
     const result = await this.recordMovement(
       {

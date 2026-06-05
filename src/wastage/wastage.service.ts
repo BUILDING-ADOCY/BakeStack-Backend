@@ -7,6 +7,7 @@ import * as inventoryLedger from '../common/prisma/inventory-ledger';
 import { requireInventoryItemMoneySettings } from '../common/prisma/location-money';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { decimal } from '../common/utils/decimal.util';
+import { minorToMajor, rateTimesQtyToMinor } from '../common/utils/money.util';
 import { IdempotencyService } from '../idempotency/idempotency.service';
 import { BulkCreateWasteEventsDto } from './dto/bulk-create-waste-events.dto';
 import { CreateWasteEventDto } from './dto/create-waste-event.dto';
@@ -190,7 +191,7 @@ export class WastageService {
       }
 
       const unitCost = event.quantity.greaterThan(0)
-        ? event.costImpact.div(event.quantity)
+        ? decimal(minorToMajor(event.costImpact)).div(event.quantity)
         : decimal(0);
 
       await inventoryLedger.applyInventoryDelta(tx, {
@@ -305,8 +306,8 @@ export class WastageService {
       this.topItems(tenantId, where, 5),
     ]);
 
-    const totalCost = aggregate._sum.costImpact ?? decimal(0);
-    const priorCost = priorAggregate._sum.costImpact ?? decimal(0);
+    const totalCost = decimal(aggregate._sum.costImpact ?? 0);
+    const priorCost = decimal(priorAggregate._sum.costImpact ?? 0);
 
     return {
       totalCost: totalCost.toString(),
@@ -388,8 +389,8 @@ export class WastageService {
     return Object.values(WasteReasonCode).map((reasonCode) => {
       const row = currentByReason.get(reasonCode);
       const priorRow = priorByReason.get(reasonCode);
-      const totalCost = row?._sum.costImpact ?? decimal(0);
-      const priorCost = priorRow?._sum.costImpact ?? decimal(0);
+      const totalCost = decimal(row?._sum.costImpact ?? 0);
+      const priorCost = decimal(priorRow?._sum.costImpact ?? 0);
       return {
         reasonCode,
         totalCost: totalCost.toString(),
@@ -526,13 +527,15 @@ export class WastageService {
       }),
     ]);
 
-    const totalCost = total._sum.costImpact ?? decimal(0);
+    const totalCost = decimal(total._sum.costImpact ?? 0);
     if (totalCost.lessThanOrEqualTo(0)) return [];
 
     const insights: WastageInsight[] = [];
     const reasonCost = (reasonCode: WasteReasonCode) =>
-      byReason.find((row) => row.reasonCode === reasonCode)?._sum.costImpact ??
-      decimal(0);
+      decimal(
+        byReason.find((row) => row.reasonCode === reasonCode)?._sum
+          .costImpact ?? 0,
+      );
     const reasonCount = (reasonCode: WasteReasonCode) =>
       byReason.find((row) => row.reasonCode === reasonCode)?._count._all ?? 0;
 
@@ -578,8 +581,8 @@ export class WastageService {
         _sum: { costImpact: true },
       }),
     ]);
-    const firstHalfCost = firstHalf._sum.costImpact ?? decimal(0);
-    const lastHalfCost = lastHalf._sum.costImpact ?? decimal(0);
+    const firstHalfCost = decimal(firstHalf._sum.costImpact ?? 0);
+    const lastHalfCost = decimal(lastHalf._sum.costImpact ?? 0);
     if (
       firstHalfCost.greaterThan(0) &&
       lastHalfCost.greaterThan(firstHalfCost.mul(1.15))
@@ -601,7 +604,7 @@ export class WastageService {
     const itemLeak = byItem
       .map((row) => ({
         inventoryItemId: row.inventoryItemId,
-        totalCost: row._sum.costImpact ?? decimal(0),
+        totalCost: decimal(row._sum.costImpact ?? 0),
       }))
       .find((row) => row.totalCost.div(totalCost).greaterThan(0.25));
     if (itemLeak) {
@@ -627,14 +630,14 @@ export class WastageService {
 
     if (locations.length > 1 && byLocation.length > 1) {
       const costs = byLocation
-        .map((row) => row._sum.costImpact ?? decimal(0))
+        .map((row) => decimal(row._sum.costImpact ?? 0))
         .sort((a, b) => a.cmp(b));
       const median = costs[Math.floor(costs.length / 2)];
       const outlier = byLocation.find((row) =>
-        (row._sum.costImpact ?? decimal(0)).greaterThan(median.mul(2)),
+        decimal(row._sum.costImpact ?? 0).greaterThan(median.mul(2)),
       );
       if (outlier && median.greaterThan(0)) {
-        const cost = outlier._sum.costImpact ?? decimal(0);
+        const cost = decimal(outlier._sum.costImpact ?? 0);
         insights.push({
           type: 'BRANCH_OUTLIER',
           severity: 'medium',
@@ -677,7 +680,7 @@ export class WastageService {
   ) {
     const quantity = decimal(dto.quantity);
     const basis = await this.resolveCostBasis(tx, tenantId, dto, quantity);
-    const costImpact = quantity.mul(basis.unitCost);
+    const costImpact = rateTimesQtyToMinor(basis.unitCost, quantity);
 
     const event = await tx.wasteEvent.create({
       data: {
@@ -973,7 +976,7 @@ export class WastageService {
     const names = new Map(items.map((item) => [item.id, item.name]));
 
     return groups.map((row) => {
-      const cost = row._sum.costImpact ?? decimal(0);
+      const cost = decimal(row._sum.costImpact ?? 0);
       return {
         inventoryItemId: row.inventoryItemId,
         name: names.get(row.inventoryItemId) ?? 'Unknown item',

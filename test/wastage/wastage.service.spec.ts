@@ -20,7 +20,7 @@ describe('WastageService', () => {
     uom: 'kg',
     reasonCode: WasteReasonCode.DAMAGED,
     notes: null,
-    costImpact: new Prisma.Decimal(10),
+    costImpact: 1000, // amount in minor units (paise): ₹10
     recordedById: '55555555-5555-4555-8555-555555555555',
     voidedAt: null,
     voidedById: null,
@@ -190,7 +190,7 @@ describe('WastageService', () => {
     expect(prisma.wasteEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          costImpact: new Prisma.Decimal(15),
+          costImpact: 1500, // amount in minor units (paise): 3kg × ₹5
           lotId: null,
         }),
       }),

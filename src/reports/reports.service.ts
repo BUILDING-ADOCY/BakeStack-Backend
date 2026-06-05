@@ -7,7 +7,7 @@ import {
   requireLocationCurrency,
 } from '../common/prisma/location-money';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { decimal } from '../common/utils/decimal.util';
+import { majorToMinor, sumMinor } from '../common/utils/money.util';
 import { CloseDailyCloseDto } from './dto/close-daily-close.dto';
 import { CreateDailyClosePreviewDto } from './dto/create-daily-close-preview.dto';
 
@@ -50,17 +50,18 @@ export class ReportsService {
       ],
     });
 
-    const cogsTotal = movements
-      .filter((movement) => movement.movementType === 'PRODUCTION_CONSUMPTION')
-      .reduce((sum, movement) => sum.add(movement.totalCost.abs()), decimal(0));
-    const wasteTotal = wasteEvents.reduce(
-      (sum, event) => sum.add(event.costImpact),
-      decimal(0),
+    const cogsTotal = sumMinor(
+      movements
+        .filter(
+          (movement) => movement.movementType === 'PRODUCTION_CONSUMPTION',
+        )
+        .map((movement) => Math.abs(movement.totalCost)),
     );
-    const salesTotal = decimal(dto.salesTotal ?? 2500);
-    const labourCost = decimal(dto.labourCost ?? 0);
-    const grossProfit = salesTotal.sub(cogsTotal).sub(wasteTotal);
-    const netEstimate = grossProfit.sub(labourCost);
+    const wasteTotal = sumMinor(wasteEvents.map((event) => event.costImpact));
+    const salesTotal = majorToMinor(dto.salesTotal ?? 2500);
+    const labourCost = majorToMinor(dto.labourCost ?? 0);
+    const grossProfit = salesTotal - cogsTotal - wasteTotal;
+    const netEstimate = grossProfit - labourCost;
 
     return {
       tenantId: dto.tenantId,

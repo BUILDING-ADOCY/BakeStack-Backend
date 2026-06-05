@@ -1,6 +1,7 @@
 import { InventoryMovementType, Prisma } from '@prisma/client';
 import { DomainException } from '../exceptions/domain.exception';
 import { decimal } from '../utils/decimal.util';
+import { rateTimesQtyToMinor } from '../utils/money.util';
 import { PrismaService } from './prisma.service';
 
 export type InventoryExecutor = Prisma.TransactionClient | PrismaService;
@@ -111,7 +112,7 @@ export async function applyInventoryDelta(
       movementType: input.movementType,
       quantity: delta,
       unitCost,
-      totalCost: delta.mul(unitCost),
+      totalCost: rateTimesQtyToMinor(unitCost, delta),
       currencyCode,
       referenceType: input.referenceType,
       referenceId: input.referenceId ?? null,

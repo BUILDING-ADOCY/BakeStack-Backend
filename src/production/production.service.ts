@@ -13,6 +13,11 @@ import {
 } from '../common/prisma/location-money';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { decimal } from '../common/utils/decimal.util';
+import {
+  minorToMajor,
+  rateTimesQtyToMinor,
+  sumMinor,
+} from '../common/utils/money.util';
 import { RecipesService } from '../recipes/recipes.service';
 import { BatchActionDto } from './dto/batch-action.dto';
 import { CompleteBatchDto } from './dto/complete-batch.dto';
@@ -171,14 +176,13 @@ export class ProductionService {
       settings.has(ingredient.inventoryItemId),
     );
     const estimatedCost = hasCompleteMoneySetup
-      ? requiredIngredients.reduce(
-          (sum, ingredient) =>
-            sum.add(
-              ingredient.requiredQty.mul(
-                settings.get(ingredient.inventoryItemId)!.unitCost!,
-              ),
+      ? sumMinor(
+          requiredIngredients.map((ingredient) =>
+            rateTimesQtyToMinor(
+              settings.get(ingredient.inventoryItemId)!.unitCost!,
+              ingredient.requiredQty,
             ),
-          decimal(0),
+          ),
         )
       : undefined;
 
@@ -212,7 +216,7 @@ export class ProductionService {
                 settings.get(ingredient.inventoryItemId)?.unitCost ??
                 legacyUnitCosts.get(ingredient.inventoryItemId) ??
                 decimal(0),
-              totalCost: decimal(0),
+              totalCost: 0,
               currencyCode,
             })),
           },
@@ -382,7 +386,10 @@ export class ProductionService {
           data: {
             lotId: allocatedLotId,
             consumedQty: consumption.requiredQty,
-            totalCost: consumption.requiredQty.mul(consumption.unitCost),
+            totalCost: rateTimesQtyToMinor(
+              consumption.unitCost,
+              consumption.requiredQty,
+            ),
           },
         });
       }
@@ -458,12 +465,11 @@ export class ProductionService {
     const outputQty = decimal(
       action.actualOutputQty ?? Number(batch.plannedQty),
     );
-    const totalConsumedCost = batch.consumptions.reduce(
-      (sum, consumption) => sum.add(consumption.totalCost),
-      decimal(0),
+    const totalConsumedCost = sumMinor(
+      batch.consumptions.map((consumption) => consumption.totalCost),
     );
     const unitCost = outputQty.greaterThan(0)
-      ? totalConsumedCost.div(outputQty)
+      ? decimal(minorToMajor(totalConsumedCost)).div(outputQty)
       : decimal(0);
 
     return this.prisma.$transaction(async (tx) => {

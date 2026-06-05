@@ -23,6 +23,8 @@ const LEGACY_DEMO_SECURITY_USER_ID = 'seed_user_oakstreet_owner';
 const DEMO_SECURITY_ORGANIZATION_ID = 'seed_org_bakestack_demo';
 
 const money = (value: number) => value.toFixed(4);
+// Amount columns are integer minor units (paise); rates/quantities stay Decimal.
+const moneyMinor = (value: number) => Math.round(value * 100);
 
 async function resetDatabase() {
   await prisma.webhookInbox.deleteMany();
@@ -832,7 +834,7 @@ async function main() {
         movementType: InventoryMovementType.OPENING_STOCK,
         quantity: money(quantity),
         unitCost: money(unitCost),
-        totalCost: money(quantity * unitCost),
+        totalCost: moneyMinor(quantity * unitCost),
         referenceType: 'SeedOpeningStock',
         reason: 'Initial seeded opening stock',
         createdById: inventoryClerk.id,
@@ -890,7 +892,7 @@ async function main() {
                 (item) => item.id === component.inventoryItemId,
               )!.name
             ].unitCost,
-          totalCost: money(0),
+          totalCost: 0,
         })),
       },
     },
@@ -905,12 +907,12 @@ async function main() {
       locationId: frontCafe.id,
       businessDate: new Date(),
       status: 'DRAFT',
-      salesTotal: money(2450),
-      cogsTotal: money(780),
-      wasteTotal: money(90),
-      grossProfit: money(1580),
-      labourCost: money(420),
-      netEstimate: money(1160),
+      salesTotal: moneyMinor(2450),
+      cogsTotal: moneyMinor(780),
+      wasteTotal: moneyMinor(90),
+      grossProfit: moneyMinor(1580),
+      labourCost: moneyMinor(420),
+      netEstimate: moneyMinor(1160),
     },
   });
 

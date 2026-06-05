@@ -839,7 +839,7 @@ model InventoryMovement {
   movementType    InventoryMovementType
   quantity        Decimal               @db.Decimal(14, 4)
   unitCost        Decimal               @db.Decimal(14, 4)
-  totalCost       Decimal               @db.Decimal(14, 4)
+  totalCost       Int // amount in minor units (paise)
   currencyCode    String?
   referenceType   String
   referenceId     String?
@@ -1379,7 +1379,7 @@ model ProductionBatch {
   status           ProductionBatchStatus   @default(PLANNED)
   plannedQty       Decimal                 @db.Decimal(14, 4)
   actualOutputQty  Decimal?                @db.Decimal(14, 4)
-  estimatedCost    Decimal?                @db.Decimal(14, 4)
+  estimatedCost    Int? // amount in minor units (paise)
   currencyCode     String?
   startedAt        DateTime?
   completedAt      DateTime?
@@ -1431,7 +1431,7 @@ model ProductionConsumption {
   consumedQty       Decimal         @default(0) @db.Decimal(14, 4)
   uom               String
   unitCost          Decimal         @db.Decimal(14, 4)
-  totalCost         Decimal         @db.Decimal(14, 4)
+  totalCost         Int // amount in minor units (paise)
   currencyCode      String?
   createdAt         DateTime        @default(now())
   inventoryItem     InventoryItem   @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
@@ -1452,7 +1452,7 @@ model ProductionOutput {
   outputQty         Decimal         @db.Decimal(14, 4)
   uom               String
   unitCost          Decimal         @db.Decimal(14, 4)
-  totalCost         Decimal         @db.Decimal(14, 4)
+  totalCost         Int // amount in minor units (paise)
   currencyCode      String?
   createdAt         DateTime        @default(now())
   inventoryItem     InventoryItem   @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
@@ -1475,7 +1475,7 @@ model WasteEvent {
   uom               String
   reasonCode        WasteReasonCode
   notes             String?
-  costImpact        Decimal          @db.Decimal(14, 4)
+  costImpact        Int // amount in minor units (paise)
   currencyCode      String?
   recordedById      String?          @db.Uuid
   voidedAt          DateTime?
@@ -1525,12 +1525,12 @@ model DailyClose {
   locationId   String           @db.Uuid
   businessDate DateTime
   status       DailyCloseStatus @default(DRAFT)
-  salesTotal   Decimal          @db.Decimal(14, 4)
-  cogsTotal    Decimal          @db.Decimal(14, 4)
-  wasteTotal   Decimal          @db.Decimal(14, 4)
-  grossProfit  Decimal          @db.Decimal(14, 4)
-  labourCost   Decimal          @db.Decimal(14, 4)
-  netEstimate  Decimal          @db.Decimal(14, 4)
+  salesTotal   Int // amount in minor units (paise)
+  cogsTotal    Int // amount in minor units (paise)
+  wasteTotal   Int // amount in minor units (paise)
+  grossProfit  Int // amount in minor units (paise)
+  labourCost   Int // amount in minor units (paise)
+  netEstimate  Int // amount in minor units (paise)
   currencyCode String?
   closedById   String?          @db.Uuid
   closedAt     DateTime?
