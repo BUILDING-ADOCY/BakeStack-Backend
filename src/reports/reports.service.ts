@@ -2,12 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { DomainException } from '../common/exceptions/domain.exception';
-import {
-  requireInventoryItemMoneySettings,
-  requireLocationCurrency,
-} from '../common/prisma/location-money';
+import { requireLocationCurrency } from '../common/prisma/location-money';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { majorToMinor, sumMinor } from '../common/utils/money.util';
+import { decimal } from '../common/utils/decimal.util';
+import {
+  majorToMinor,
+  rateTimesQtyToMinor,
+  sumMinor,
+} from '../common/utils/money.util';
+import { RecipesService } from '../recipes/recipes.service';
 import { CloseDailyCloseDto } from './dto/close-daily-close.dto';
 import { CreateDailyClosePreviewDto } from './dto/create-daily-close-preview.dto';
 
@@ -16,49 +19,42 @@ export class ReportsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly recipesService: RecipesService,
   ) {}
 
   async generateDailyClosePreview(dto: CreateDailyClosePreviewDto) {
     const { start, end } = this.dayRange(dto.businessDate);
-    const movements = await this.prisma.inventoryMovement.findMany({
-      where: {
-        tenantId: dto.tenantId,
-        locationId: dto.locationId,
-        createdAt: {
-          gte: start,
-          lt: end,
+    const [salesEntries, wasteEvents, currencyCode] = await Promise.all([
+      this.prisma.salesEntry.findMany({
+        where: {
+          tenantId: dto.tenantId,
+          locationId: dto.locationId,
+          businessDate: { gte: start, lt: end },
         },
-      },
-    });
-    const wasteEvents = await this.prisma.wasteEvent.findMany({
-      where: {
-        tenantId: dto.tenantId,
-        locationId: dto.locationId,
-        createdAt: {
-          gte: start,
-          lt: end,
+      }),
+      this.prisma.wasteEvent.findMany({
+        where: {
+          tenantId: dto.tenantId,
+          locationId: dto.locationId,
+          createdAt: { gte: start, lt: end },
         },
-      },
-    });
-    const currencyCode = await requireLocationCurrency(this.prisma, dto);
-    await requireInventoryItemMoneySettings(this.prisma, {
-      tenantId: dto.tenantId,
-      locationId: dto.locationId,
-      inventoryItemIds: [
-        ...movements.map((movement) => movement.inventoryItemId),
-        ...wasteEvents.map((event) => event.inventoryItemId),
-      ],
-    });
+      }),
+      requireLocationCurrency(this.prisma, dto),
+    ]);
 
-    const cogsTotal = sumMinor(
-      movements
-        .filter(
-          (movement) => movement.movementType === 'PRODUCTION_CONSUMPTION',
-        )
-        .map((movement) => Math.abs(movement.totalCost)),
+    // Revenue is the sum of captured per-SKU sales; the manual salesTotal is a
+    // fallback only for stores that have not captured per-SKU sales yet.
+    const salesTotal =
+      salesEntries.length > 0
+        ? sumMinor(salesEntries.map((entry) => entry.lineRevenue))
+        : majorToMinor(dto.salesTotal ?? 0);
+    // COGS = units sold × the SKU's active-recipe unit cost (location-aware).
+    const cogsTotal = await this.computeSoldCogs(
+      dto.tenantId,
+      dto.locationId,
+      salesEntries,
     );
     const wasteTotal = sumMinor(wasteEvents.map((event) => event.costImpact));
-    const salesTotal = majorToMinor(dto.salesTotal ?? 0);
     const labourCost = majorToMinor(dto.labourCost ?? 0);
     const grossProfit = salesTotal - cogsTotal - wasteTotal;
     const netEstimate = grossProfit - labourCost;
@@ -76,6 +72,57 @@ export class ReportsService {
       netEstimate,
       currencyCode,
     };
+  }
+
+  /** COGS for the day = Σ (units sold × active-recipe cost per yield unit). */
+  private async computeSoldCogs(
+    tenantId: string,
+    locationId: string,
+    salesEntries: Array<{ productVariantId: string; units: Prisma.Decimal }>,
+  ): Promise<number> {
+    if (!salesEntries.length) {
+      return 0;
+    }
+
+    const unitsByVariant = new Map<string, Prisma.Decimal>();
+    for (const entry of salesEntries) {
+      unitsByVariant.set(
+        entry.productVariantId,
+        (unitsByVariant.get(entry.productVariantId) ?? decimal(0)).add(
+          entry.units,
+        ),
+      );
+    }
+
+    const recipes = await this.prisma.recipe.findMany({
+      where: {
+        tenantId,
+        productVariantId: { in: [...unitsByVariant.keys()] },
+        isActive: true,
+        deletedAt: null,
+      },
+      select: { id: true, productVariantId: true },
+    });
+    const recipeByVariant = new Map(
+      recipes.map((recipe) => [recipe.productVariantId, recipe.id]),
+    );
+
+    let cogs = 0;
+    for (const [productVariantId, units] of unitsByVariant) {
+      const recipeId = recipeByVariant.get(productVariantId);
+      if (!recipeId) {
+        // No active recipe → unit cost unknown; excluded rather than guessed.
+        continue;
+      }
+      const costing = await this.recipesService.calculateRecipeCost(
+        tenantId,
+        recipeId,
+        locationId,
+      );
+      cogs += rateTimesQtyToMinor(costing.costPerYieldUnit, units);
+    }
+
+    return cogs;
   }
 
   async getTenantSummaryByCurrency(tenantId: string) {
