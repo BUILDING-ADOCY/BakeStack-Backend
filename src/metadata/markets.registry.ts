@@ -10,7 +10,12 @@ export interface MarketDefinition {
   currencyCode: string;
   currencySymbol: string;
   currencyMinorUnits: number;
-  region: 'NORTH_AMERICA' | 'INDIA' | 'EURO_AREA' | 'AUSTRALIA';
+  region:
+    | 'NORTH_AMERICA'
+    | 'INDIA'
+    | 'EURO_AREA'
+    | 'AUSTRALIA'
+    | 'SOUTH_AMERICA';
   complianceRequirements: MarketComplianceRequirement[];
 }
 
@@ -150,6 +155,70 @@ export const MARKETS: MarketDefinition[] = [
         category: 'BUSINESS',
       },
       { key: 'gst_number', label: 'GST registration', category: 'TAX' },
+      foodBusinessRegistration,
+    ],
+  },
+  {
+    countryCode: 'BR',
+    countryName: 'Brazil',
+    currencyCode: 'BRL',
+    currencySymbol: 'R$',
+    currencyMinorUnits: 2,
+    region: 'SOUTH_AMERICA',
+    complianceRequirements: [
+      { key: 'cnpj', label: 'CNPJ', category: 'BUSINESS' },
+      {
+        key: 'inscricao_estadual',
+        label: 'Inscrição Estadual',
+        category: 'TAX',
+      },
+      {
+        key: 'anvisa_license',
+        label: 'ANVISA sanitary license',
+        category: 'FOOD_SAFETY',
+      },
+    ],
+  },
+  {
+    countryCode: 'AR',
+    countryName: 'Argentina',
+    currencyCode: 'ARS',
+    currencySymbol: '$',
+    currencyMinorUnits: 2,
+    region: 'SOUTH_AMERICA',
+    complianceRequirements: [
+      { key: 'cuit', label: 'CUIT', category: 'BUSINESS' },
+      { key: 'iva_registration', label: 'IVA registration', category: 'TAX' },
+      foodBusinessRegistration,
+    ],
+  },
+  {
+    countryCode: 'CO',
+    countryName: 'Colombia',
+    currencyCode: 'COP',
+    currencySymbol: '$',
+    currencyMinorUnits: 2,
+    region: 'SOUTH_AMERICA',
+    complianceRequirements: [
+      { key: 'nit', label: 'NIT', category: 'BUSINESS' },
+      { key: 'rut', label: 'RUT', category: 'TAX' },
+      {
+        key: 'invima_registration',
+        label: 'INVIMA registration',
+        category: 'FOOD_SAFETY',
+      },
+    ],
+  },
+  {
+    countryCode: 'PE',
+    countryName: 'Peru',
+    currencyCode: 'PEN',
+    currencySymbol: 'S/',
+    currencyMinorUnits: 2,
+    region: 'SOUTH_AMERICA',
+    complianceRequirements: [
+      { key: 'ruc', label: 'RUC', category: 'BUSINESS' },
+      { key: 'igv_registration', label: 'IGV registration', category: 'TAX' },
       foodBusinessRegistration,
     ],
   },
