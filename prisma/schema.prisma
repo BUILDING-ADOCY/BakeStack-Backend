@@ -346,6 +346,7 @@ model Tenant {
   recipeComponents        RecipeComponent[]
   recipes                 Recipe[]
   roles                   Role[]
+  salesEntries            SalesEntry[]
   supplierInvoices        SupplierInvoice[]
   supplierItems           SupplierItem[]
   supplierMessageThreads  SupplierMessageThread[]
@@ -399,6 +400,7 @@ model Location {
   productVariantSettings LocationProductVariantSetting[]
   purchaseOrders         PurchaseOrder[]
   qcChecks               QCCheck[]
+  salesEntries           SalesEntry[]
   userAssignments        UserRoleAssignment[]
   supplierItemSettings   LocationSupplierItemSetting[]
   wasteEvents            WasteEvent[]
@@ -437,6 +439,7 @@ model User {
   qcChecks                   QCCheck[]            @relation("QCCheckedBy")
   recipeCreated              Recipe[]             @relation("RecipeCreatedBy")
   roleAssignments            UserRoleAssignment[]
+  salesEntriesCreated        SalesEntry[]         @relation("SalesEntryCreatedBy")
   wasteEventsRecorded        WasteEvent[]         @relation("WasteRecordedBy")
   wasteEventsVoided          WasteEvent[]         @relation("WasteVoidedBy")
 
@@ -669,6 +672,7 @@ model ProductVariant {
   tenant               Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   productionBatchItems ProductionBatchItem[]
   recipes              Recipe[]
+  salesEntries         SalesEntry[]
   locationSettings     LocationProductVariantSetting[]
 
   @@unique([tenantId, sku])
@@ -1544,6 +1548,29 @@ model DailyClose {
   @@index([tenantId])
   @@index([tenantId, locationId])
   @@index([tenantId, status])
+}
+
+model SalesEntry {
+  id               String         @id @default(uuid()) @db.Uuid
+  tenantId         String         @db.Uuid
+  locationId       String         @db.Uuid
+  businessDate     DateTime
+  productVariantId String         @db.Uuid
+  units            Decimal        @db.Decimal(14, 4)
+  unitSellPrice    Decimal        @db.Decimal(14, 2)
+  lineRevenue      Int // amount in minor units (paise)
+  currencyCode     String?
+  createdById      String?        @db.Uuid
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  createdBy        User?          @relation("SalesEntryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  location         Location       @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  productVariant   ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
+  tenant           Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, locationId, businessDate, productVariantId], map: "SalesEntry_loc_date_variant_key")
+  @@index([tenantId])
+  @@index([tenantId, locationId, businessDate])
 }
 
 model AuditLog {

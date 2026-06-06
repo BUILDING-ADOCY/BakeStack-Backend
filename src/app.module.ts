@@ -22,6 +22,7 @@ import { QcModule } from './qc/qc.module';
 import { RecipesModule } from './recipes/recipes.module';
 import { ReportsModule } from './reports/reports.module';
 import { RolesModule } from './roles/roles.module';
+import { SalesModule } from './sales/sales.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { UsersModule } from './users/users.module';
@@ -54,6 +55,7 @@ import { validateEnv } from './config/env.validation';
     InventoryModule,
     ProductionModule,
     ReportsModule,
+    SalesModule,
     AuditModule,
     WastageModule,
     IntegrationsModule,
