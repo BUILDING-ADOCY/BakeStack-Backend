@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, type LocationInventoryItemSetting } from '@prisma/client';
 import { DomainException } from '../exceptions/domain.exception';
 import { PrismaService } from './prisma.service';
 
@@ -41,7 +41,14 @@ export async function requireLocationCurrency(
   return location.currencyCode;
 }
 
-export async function requireInventoryItemMoneySettings(
+/**
+ * Non-throwing variant: returns the priced settings plus the ids that have no
+ * usable price in the location currency. Use this for costing previews so a
+ * missing ingredient price surfaces a "cost incomplete" flag instead of either
+ * a hard failure or a silent zero. Write paths should keep using the throwing
+ * `requireInventoryItemMoneySettings` below.
+ */
+export async function getInventoryItemMoneySettings(
   executor: MoneyExecutor,
   scope: LocationMoneyScope & { inventoryItemIds: string[] },
 ) {
@@ -49,7 +56,11 @@ export async function requireInventoryItemMoneySettings(
   const currencyCode = await requireLocationCurrency(executor, scope);
 
   if (!inventoryItemIds.length) {
-    return { currencyCode, settings: new Map() };
+    return {
+      currencyCode,
+      settings: new Map<string, LocationInventoryItemSetting>(),
+      missingSettingIds: [] as string[],
+    };
   }
 
   const rows = await executor.locationInventoryItemSetting.findMany({
@@ -60,11 +71,24 @@ export async function requireInventoryItemMoneySettings(
       isStocked: { not: false },
     },
   });
-  const settings = new Map(rows.map((row) => [row.inventoryItemId, row]));
-  const missingSettingIds = inventoryItemIds.filter((id) => {
-    const setting = settings.get(id);
-    return !setting?.unitCost || setting.currencyCode !== currencyCode;
-  });
+  // Only a row with a usable price in the location currency counts as priced.
+  const settings = new Map<string, LocationInventoryItemSetting>();
+  for (const row of rows) {
+    if (row.unitCost && row.currencyCode === currencyCode) {
+      settings.set(row.inventoryItemId, row);
+    }
+  }
+  const missingSettingIds = inventoryItemIds.filter((id) => !settings.has(id));
+
+  return { currencyCode, settings, missingSettingIds };
+}
+
+export async function requireInventoryItemMoneySettings(
+  executor: MoneyExecutor,
+  scope: LocationMoneyScope & { inventoryItemIds: string[] },
+) {
+  const { currencyCode, settings, missingSettingIds } =
+    await getInventoryItemMoneySettings(executor, scope);
 
   if (missingSettingIds.length) {
     throw setupRequired(scope.locationId, 'inventory-items', missingSettingIds);

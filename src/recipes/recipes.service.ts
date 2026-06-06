@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { DomainException } from '../common/exceptions/domain.exception';
-import { requireInventoryItemMoneySettings } from '../common/prisma/location-money';
+import { getInventoryItemMoneySettings } from '../common/prisma/location-money';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { decimal } from '../common/utils/decimal.util';
 import { CreateRecipeDto } from './dto/create-recipe.dto';
@@ -241,34 +241,43 @@ export class RecipesService {
     plannedQty: number,
   ) {
     const recipe = await this.findRecipeForCalculation(tenantId, recipeId);
-    const { currencyCode, settings } = await requireInventoryItemMoneySettings(
-      this.prisma,
-      {
+    const { currencyCode, settings, missingSettingIds } =
+      await getInventoryItemMoneySettings(this.prisma, {
         tenantId,
         locationId,
         inventoryItemIds: recipe.components.map(
           (component) => component.inventoryItemId,
         ),
-      },
-    );
-    const costPerBatch = recipe.components.reduce(
-      (accumulator, component) =>
-        accumulator.add(
-          component.quantity
-            .mul(settings.get(component.inventoryItemId)!.unitCost!)
-            .mul(decimal(1).add(component.lossFactorPercent.div(decimal(100)))),
-        ),
-      decimal(0),
-    );
+      });
+    // A missing ingredient price never contributes a silent 0 — it is excluded
+    // from the rolled-up cost and surfaced via costIncomplete instead.
+    const costIncomplete = missingSettingIds.length > 0;
+    const costPerBatch = recipe.components.reduce((accumulator, component) => {
+      const setting = settings.get(component.inventoryItemId);
+      if (!setting?.unitCost) {
+        return accumulator;
+      }
+      return accumulator.add(
+        component.quantity
+          .mul(setting.unitCost)
+          .mul(decimal(1).add(component.lossFactorPercent.div(decimal(100)))),
+      );
+    }, decimal(0));
+    // Guard divide-by-zero: a recipe that yields nothing has no per-unit cost.
+    const costPerYieldUnit = recipe.batchYieldQty.greaterThan(0)
+      ? costPerBatch.div(recipe.batchYieldQty)
+      : decimal(0);
     const requiredIngredients = this.scaleRequiredIngredients(
       recipe.components,
       recipe.batchYieldQty,
       plannedQty,
     ).map((ingredient) => {
-      const unitCost = settings.get(ingredient.inventoryItemId)!.unitCost!;
-      const totalCost = ingredient.requiredQty
-        .mul(unitCost)
-        .mul(decimal(1).add(ingredient.lossFactorPercent.div(decimal(100))));
+      const unitCost = settings.get(ingredient.inventoryItemId)?.unitCost ?? null;
+      const totalCost = unitCost
+        ? ingredient.requiredQty
+            .mul(unitCost)
+            .mul(decimal(1).add(ingredient.lossFactorPercent.div(decimal(100))))
+        : null;
 
       return {
         ...ingredient,
@@ -283,8 +292,10 @@ export class RecipesService {
         locationId,
         currencyCode,
         costPerBatch,
-        costPerYieldUnit: costPerBatch.div(recipe.batchYieldQty),
+        costPerYieldUnit,
         yieldUom: recipe.yieldUom,
+        costIncomplete,
+        missingInventoryItemIds: missingSettingIds,
       },
       requiredIngredients,
     };
@@ -321,7 +332,9 @@ export class RecipesService {
       inventoryItemId: component.inventoryItemId,
       inventoryItemName: component.inventoryItem.name,
       uom: component.uom,
-      requiredQty: component.quantity.mul(planned).div(batchYieldQty),
+      requiredQty: batchYieldQty.greaterThan(0)
+        ? component.quantity.mul(planned).div(batchYieldQty)
+        : decimal(0),
       lossFactorPercent: component.lossFactorPercent,
     }));
   }

@@ -130,4 +130,72 @@ describe('RecipesService', () => {
       totalCost: new Prisma.Decimal(3.3),
     });
   });
+
+  it('flags cost incomplete when an ingredient has no location price', async () => {
+    prisma.recipe.findFirst.mockResolvedValue({
+      id: 'recipe-1',
+      batchYieldQty: new Prisma.Decimal(10),
+      yieldUom: 'each',
+      components: [
+        {
+          inventoryItemId: 'item-1',
+          quantity: new Prisma.Decimal(2),
+          lossFactorPercent: new Prisma.Decimal(0),
+          uom: 'kg',
+          inventoryItem: { name: 'Flour' },
+        },
+      ],
+    });
+    prisma.location.findFirst.mockResolvedValue({ currencyCode: 'INR' });
+    prisma.locationInventoryItemSetting.findMany.mockResolvedValue([]);
+
+    const result = await service.calculateRecipeCosting(
+      'tenant-1',
+      'recipe-1',
+      'location-1',
+      1,
+    );
+
+    expect(result.costing.costIncomplete).toBe(true);
+    expect(result.costing.missingInventoryItemIds).toEqual(['item-1']);
+    // Missing price contributes nothing rather than a silent zero unit cost.
+    expect(result.costing.costPerBatch.toString()).toBe('0');
+    expect(result.requiredIngredients[0].unitCost).toBeNull();
+    expect(result.requiredIngredients[0].totalCost).toBeNull();
+  });
+
+  it('guards divide-by-zero when batch yield is zero', async () => {
+    prisma.recipe.findFirst.mockResolvedValue({
+      id: 'recipe-1',
+      batchYieldQty: new Prisma.Decimal(0),
+      yieldUom: 'each',
+      components: [
+        {
+          inventoryItemId: 'item-1',
+          quantity: new Prisma.Decimal(2),
+          lossFactorPercent: new Prisma.Decimal(0),
+          uom: 'kg',
+          inventoryItem: { name: 'Flour' },
+        },
+      ],
+    });
+    prisma.location.findFirst.mockResolvedValue({ currencyCode: 'INR' });
+    prisma.locationInventoryItemSetting.findMany.mockResolvedValue([
+      {
+        inventoryItemId: 'item-1',
+        unitCost: new Prisma.Decimal(3),
+        currencyCode: 'INR',
+      },
+    ]);
+
+    const result = await service.calculateRecipeCosting(
+      'tenant-1',
+      'recipe-1',
+      'location-1',
+      1,
+    );
+
+    expect(result.costing.costPerYieldUnit.toString()).toBe('0');
+    expect(result.costing.costIncomplete).toBe(false);
+  });
 });

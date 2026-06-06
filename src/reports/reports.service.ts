@@ -58,7 +58,7 @@ export class ReportsService {
         .map((movement) => Math.abs(movement.totalCost)),
     );
     const wasteTotal = sumMinor(wasteEvents.map((event) => event.costImpact));
-    const salesTotal = majorToMinor(dto.salesTotal ?? 2500);
+    const salesTotal = majorToMinor(dto.salesTotal ?? 0);
     const labourCost = majorToMinor(dto.labourCost ?? 0);
     const grossProfit = salesTotal - cogsTotal - wasteTotal;
     const netEstimate = grossProfit - labourCost;
