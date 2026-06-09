@@ -125,6 +125,163 @@ export class ReportsService {
     return cogs;
   }
 
+  /**
+   * Per-SKU reconciliation for one business date: produced (production output)
+   * vs sold (sales entries) vs wasted (finished-good waste), with revenue, COGS
+   * and profit (all money in minor units) so the dashboard can rank the most
+   * profitable products by (sell − unit cost) × units sold.
+   */
+  async reconcileByDate(
+    tenantId: string,
+    locationId: string,
+    businessDate: string,
+  ) {
+    const { start, end } = this.dayRange(businessDate);
+    const [salesEntries, outputs, wasteEvents, variants, currencyCode] =
+      await Promise.all([
+        this.prisma.salesEntry.findMany({
+          where: { tenantId, locationId, businessDate: { gte: start, lt: end } },
+        }),
+        this.prisma.productionOutput.findMany({
+          where: {
+            tenantId,
+            createdAt: { gte: start, lt: end },
+            productionBatch: { locationId },
+          },
+          include: {
+            productionBatch: {
+              select: { recipe: { select: { productVariantId: true } } },
+            },
+          },
+        }),
+        this.prisma.wasteEvent.findMany({
+          where: {
+            tenantId,
+            locationId,
+            createdAt: { gte: start, lt: end },
+            voidedAt: null,
+          },
+        }),
+        this.prisma.productVariant.findMany({
+          where: { tenantId, deletedAt: null },
+          include: { product: { select: { name: true } } },
+        }),
+        requireLocationCurrency(this.prisma, { tenantId, locationId }),
+      ]);
+
+    const variantById = new Map(variants.map((variant) => [variant.id, variant]));
+    const variantByFinishedGood = new Map(
+      variants
+        .filter((variant) => variant.inventoryItemId)
+        .map((variant) => [variant.inventoryItemId as string, variant]),
+    );
+
+    interface Tally {
+      producedUnits: Prisma.Decimal;
+      soldUnits: Prisma.Decimal;
+      wastedUnits: Prisma.Decimal;
+      revenue: number;
+    }
+    const tallies = new Map<string, Tally>();
+    const ensure = (variantId: string): Tally => {
+      let tally = tallies.get(variantId);
+      if (!tally) {
+        tally = {
+          producedUnits: decimal(0),
+          soldUnits: decimal(0),
+          wastedUnits: decimal(0),
+          revenue: 0,
+        };
+        tallies.set(variantId, tally);
+      }
+      return tally;
+    };
+
+    for (const sale of salesEntries) {
+      const tally = ensure(sale.productVariantId);
+      tally.soldUnits = tally.soldUnits.add(sale.units);
+      tally.revenue += sale.lineRevenue;
+    }
+    for (const output of outputs) {
+      const variantId = output.productionBatch?.recipe?.productVariantId;
+      if (variantId) {
+        const tally = ensure(variantId);
+        tally.producedUnits = tally.producedUnits.add(output.outputQty);
+      }
+    }
+    for (const waste of wasteEvents) {
+      const variant = variantByFinishedGood.get(waste.inventoryItemId);
+      if (variant) {
+        const tally = ensure(variant.id);
+        tally.wastedUnits = tally.wastedUnits.add(waste.quantity);
+      }
+    }
+
+    const activeRecipes = await this.prisma.recipe.findMany({
+      where: {
+        tenantId,
+        productVariantId: { in: [...tallies.keys()] },
+        isActive: true,
+        deletedAt: null,
+      },
+      select: { id: true, productVariantId: true },
+    });
+    const recipeByVariant = new Map(
+      activeRecipes.map((recipe) => [recipe.productVariantId, recipe.id]),
+    );
+
+    const skus = [];
+    for (const [variantId, tally] of tallies) {
+      const variant = variantById.get(variantId);
+      const recipeId = recipeByVariant.get(variantId);
+      let unitCost: number | null = null;
+      let cogs: number | null = null;
+      let costIncomplete = true;
+      if (recipeId) {
+        const costing = await this.recipesService.calculateRecipeCost(
+          tenantId,
+          recipeId,
+          locationId,
+        );
+        costIncomplete = costing.costIncomplete;
+        unitCost = majorToMinor(costing.costPerYieldUnit);
+        cogs = rateTimesQtyToMinor(costing.costPerYieldUnit, tally.soldUnits);
+      }
+      skus.push({
+        productVariantId: variantId,
+        sku: variant?.sku ?? null,
+        productName: variant?.product?.name ?? null,
+        variantName: variant?.name ?? null,
+        producedUnits: tally.producedUnits.toNumber(),
+        soldUnits: tally.soldUnits.toNumber(),
+        wastedUnits: tally.wastedUnits.toNumber(),
+        revenue: tally.revenue,
+        unitCost,
+        cogs,
+        profit: cogs === null ? null : tally.revenue - cogs,
+        costIncomplete,
+      });
+    }
+
+    skus.sort((a, b) => (b.profit ?? -Infinity) - (a.profit ?? -Infinity));
+
+    return {
+      tenantId,
+      locationId,
+      businessDate: start,
+      currencyCode,
+      skus,
+      totals: {
+        producedUnits: skus.reduce((sum, sku) => sum + sku.producedUnits, 0),
+        soldUnits: skus.reduce((sum, sku) => sum + sku.soldUnits, 0),
+        wastedUnits: skus.reduce((sum, sku) => sum + sku.wastedUnits, 0),
+        revenue: sumMinor(skus.map((sku) => sku.revenue)),
+        cogs: sumMinor(skus.map((sku) => sku.cogs ?? 0)),
+        profit: sumMinor(skus.map((sku) => sku.profit ?? 0)),
+      },
+    };
+  }
+
   async getTenantSummaryByCurrency(tenantId: string) {
     const buckets = await this.prisma.dailyClose.groupBy({
       by: ['currencyCode'],

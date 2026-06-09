@@ -62,3 +62,116 @@ describe('ReportsService daily close', () => {
     expect(preview.grossProfit).toBe(100000);
   });
 });
+
+describe('ReportsService.reconcileByDate', () => {
+  const prisma = {
+    salesEntry: { findMany: jest.fn() },
+    productionOutput: { findMany: jest.fn() },
+    wasteEvent: { findMany: jest.fn() },
+    productVariant: { findMany: jest.fn() },
+    recipe: { findMany: jest.fn() },
+    location: { findFirst: jest.fn() },
+  } as any;
+  const auditService = { log: jest.fn() } as any;
+  const recipesService = { calculateRecipeCost: jest.fn() } as any;
+  const service = new ReportsService(prisma, auditService, recipesService);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prisma.salesEntry.findMany.mockResolvedValue([
+      {
+        productVariantId: 'v1',
+        units: new Prisma.Decimal(10),
+        lineRevenue: 500000,
+      },
+      {
+        productVariantId: 'v2',
+        units: new Prisma.Decimal(5),
+        lineRevenue: 100000,
+      },
+    ]);
+    prisma.productionOutput.findMany.mockResolvedValue([
+      {
+        outputQty: new Prisma.Decimal(12),
+        productionBatch: { recipe: { productVariantId: 'v1' } },
+      },
+    ]);
+    prisma.wasteEvent.findMany.mockResolvedValue([
+      { inventoryItemId: 'fg1', quantity: new Prisma.Decimal(2) },
+    ]);
+    prisma.productVariant.findMany.mockResolvedValue([
+      {
+        id: 'v1',
+        sku: 'SKU1',
+        name: '500g',
+        inventoryItemId: 'fg1',
+        product: { name: 'Cake' },
+      },
+      {
+        id: 'v2',
+        sku: 'SKU2',
+        name: 'each',
+        inventoryItemId: null,
+        product: { name: 'Bread' },
+      },
+    ]);
+    prisma.recipe.findMany.mockResolvedValue([
+      { id: 'r1', productVariantId: 'v1' },
+    ]);
+    prisma.location.findFirst.mockResolvedValue({ currencyCode: 'INR' });
+    recipesService.calculateRecipeCost.mockResolvedValue({
+      costPerYieldUnit: new Prisma.Decimal('16.2'),
+      costIncomplete: false,
+    });
+  });
+
+  it('reconciles produced/sold/wasted per SKU with revenue, COGS and profit', async () => {
+    const result = await service.reconcileByDate('t1', 'loc1', '2026-06-06');
+
+    expect(result.currencyCode).toBe('INR');
+    expect(result.skus).toHaveLength(2);
+
+    const v1 = result.skus.find((s) => s.productVariantId === 'v1')!;
+    expect(v1).toMatchObject({
+      sku: 'SKU1',
+      productName: 'Cake',
+      variantName: '500g',
+      producedUnits: 12,
+      soldUnits: 10,
+      wastedUnits: 2,
+      revenue: 500000,
+      unitCost: 1620, // ₹16.20 in paise
+      cogs: 16200, // 10 × ₹16.20
+      profit: 483800, // 500000 - 16200
+      costIncomplete: false,
+    });
+
+    const v2 = result.skus.find((s) => s.productVariantId === 'v2')!;
+    expect(v2).toMatchObject({
+      sku: 'SKU2',
+      producedUnits: 0,
+      soldUnits: 5,
+      wastedUnits: 0,
+      revenue: 100000,
+      unitCost: null,
+      cogs: null,
+      profit: null,
+      costIncomplete: true, // no active recipe -> never a silent 0
+    });
+  });
+
+  it('ranks most profitable SKUs first and rolls up totals', async () => {
+    const result = await service.reconcileByDate('t1', 'loc1', '2026-06-06');
+
+    expect(result.skus[0].productVariantId).toBe('v1');
+    expect(result.totals).toMatchObject({
+      producedUnits: 12,
+      soldUnits: 15,
+      wastedUnits: 2,
+      revenue: 600000,
+      cogs: 16200,
+      profit: 483800,
+    });
+    expect(recipesService.calculateRecipeCost).toHaveBeenCalledTimes(1);
+  });
+});

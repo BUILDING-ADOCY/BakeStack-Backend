@@ -28,6 +28,23 @@ export class ReportsController {
     };
   }
 
+  @Get(':locationId/:businessDate/reconciliation')
+  async getReconciliation(
+    @Req() request: Request,
+    @Param('locationId') locationId: string,
+    @Param('businessDate') businessDate: string,
+    @Query() query: OptionalTenantScopeDto,
+  ) {
+    return {
+      data: await this.reportsService.reconcileByDate(
+        resolveTenantId(request, query.tenantId),
+        locationId,
+        businessDate,
+      ),
+      message: 'Reconciliation retrieved successfully',
+    };
+  }
+
   @Post('preview')
   async preview(@Body() dto: CreateDailyClosePreviewDto) {
     return {
