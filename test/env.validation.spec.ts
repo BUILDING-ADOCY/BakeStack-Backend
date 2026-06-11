@@ -50,4 +50,15 @@ describe('validateEnv', () => {
       'Missing required database configuration. Set DATABASE_URL or provide Railway PostgreSQL variables (PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE).',
     );
   });
+
+  it('fails closed when the security bridge key is missing and no Appwrite bridge is set', () => {
+    expect(() =>
+      validateEnv({
+        SECURITY_BASE_URL: 'https://security.example.com',
+        DATABASE_URL: 'postgresql://user:pass@db:5432/bakestack',
+      }),
+    ).toThrow(
+      'Missing auth bridge configuration. Set APPWRITE_ENDPOINT and APPWRITE_PROJECT_ID, or provide SECURITY_BASE_URL and SECURITY_INTERNAL_SERVICE_API_KEY during legacy migration.',
+    );
+  });
 });

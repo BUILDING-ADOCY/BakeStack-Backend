@@ -45,8 +45,7 @@ function createClient(config: Record<string, string> = {}): SecurityAuthClient {
   return new SecurityAuthClient(
     new ConfigService({
       SECURITY_BASE_URL: 'http://localhost:4001',
-      SECURITY_INTERNAL_SERVICE_API_KEY:
-        'bakestake_internal_service_key_dev_2026',
+      SECURITY_INTERNAL_SERVICE_API_KEY: 'test_internal_service_key_0000',
       SECURITY_INTERNAL_SERVICE_NAME: 'bakestake-backend',
       SECURITY_SESSION_COOKIE_NAME: 'bk_session',
       ...config,
