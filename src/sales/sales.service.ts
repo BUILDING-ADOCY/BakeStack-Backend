@@ -42,7 +42,11 @@ export class SalesService {
       tenantId,
       locationId: dto.locationId,
     });
-    const unitSellPrice = await this.resolveUnitSellPrice(tenantId, dto, variant);
+    const unitSellPrice = await this.resolveUnitSellPrice(
+      tenantId,
+      dto,
+      variant,
+    );
     const units = decimal(dto.units);
     const lineRevenue = rateTimesQtyToMinor(unitSellPrice, units);
 

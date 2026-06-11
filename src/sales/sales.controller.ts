@@ -52,7 +52,9 @@ export class SalesController {
 
   @Get()
   async list(@Req() request: Request, @Query() query: QuerySalesDto) {
-    await this.identityProvisioningService.ensureProvisionedFromRequest(request);
+    await this.identityProvisioningService.ensureProvisionedFromRequest(
+      request,
+    );
     return {
       data: await this.salesService.list(
         resolveTenantId(request, query.tenantId),

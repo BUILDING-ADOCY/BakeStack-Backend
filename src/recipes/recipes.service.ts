@@ -272,7 +272,8 @@ export class RecipesService {
       recipe.batchYieldQty,
       plannedQty,
     ).map((ingredient) => {
-      const unitCost = settings.get(ingredient.inventoryItemId)?.unitCost ?? null;
+      const unitCost =
+        settings.get(ingredient.inventoryItemId)?.unitCost ?? null;
       const totalCost = unitCost
         ? ingredient.requiredQty
             .mul(unitCost)

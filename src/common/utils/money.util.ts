@@ -50,7 +50,8 @@ export const sumMinor = (values: number[]): number =>
   values.reduce((total, value) => total + value, 0);
 
 /** Prisma `BigInt` write boundary: application integer paise -> storable bigint. */
-export const toMinorStore = (minor: number): bigint => BigInt(Math.round(minor));
+export const toMinorStore = (minor: number): bigint =>
+  BigInt(Math.round(minor));
 
 /** Prisma `BigInt` read boundary: stored bigint (or number) -> application integer paise. */
 export const fromMinorStore = (

@@ -140,7 +140,11 @@ export class ReportsService {
     const [salesEntries, outputs, wasteEvents, variants, currencyCode] =
       await Promise.all([
         this.prisma.salesEntry.findMany({
-          where: { tenantId, locationId, businessDate: { gte: start, lt: end } },
+          where: {
+            tenantId,
+            locationId,
+            businessDate: { gte: start, lt: end },
+          },
         }),
         this.prisma.productionOutput.findMany({
           where: {
@@ -169,7 +173,9 @@ export class ReportsService {
         requireLocationCurrency(this.prisma, { tenantId, locationId }),
       ]);
 
-    const variantById = new Map(variants.map((variant) => [variant.id, variant]));
+    const variantById = new Map(
+      variants.map((variant) => [variant.id, variant]),
+    );
     const variantByFinishedGood = new Map(
       variants
         .filter((variant) => variant.inventoryItemId)
