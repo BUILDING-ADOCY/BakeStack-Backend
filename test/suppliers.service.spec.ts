@@ -3,6 +3,7 @@ import { SuppliersService } from '../src/suppliers/suppliers.service';
 
 describe('SuppliersService mappings', () => {
   let prisma: any;
+  let appwriteMirror: any;
   let service: SuppliersService;
 
   beforeEach(() => {
@@ -12,7 +13,11 @@ describe('SuppliersService mappings', () => {
         update: jest.fn(),
       },
     };
-    service = new SuppliersService(prisma);
+    appwriteMirror = {
+      upsertOperationalRow: jest.fn().mockResolvedValue({ skipped: false }),
+      deleteOperationalRow: jest.fn().mockResolvedValue({ skipped: false }),
+    };
+    service = new SuppliersService(prisma, appwriteMirror);
   });
 
   it('updates shared supplier SKU, UOM, and pack size within the tenant', async () => {

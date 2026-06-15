@@ -22,7 +22,23 @@ describe('Markets metadata', () => {
       }),
     );
     expect(markets).toContainEqual(
-      expect.objectContaining({ countryCode: 'IN', currencyCode: 'INR' }),
+      expect.objectContaining({
+        countryCode: 'IN',
+        currencyCode: 'INR',
+        defaultTimeZone: 'Asia/Kolkata',
+        timeZones: expect.arrayContaining([
+          expect.objectContaining({ value: 'Asia/Kolkata' }),
+        ]),
+      }),
+    );
+    expect(markets).toContainEqual(
+      expect.objectContaining({
+        countryCode: 'US',
+        defaultTimeZone: 'America/New_York',
+        timeZones: expect.arrayContaining([
+          expect.objectContaining({ value: 'America/Los_Angeles' }),
+        ]),
+      }),
     );
     expect(markets).toContainEqual(
       expect.objectContaining({

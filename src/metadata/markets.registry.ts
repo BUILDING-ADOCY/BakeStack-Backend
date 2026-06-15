@@ -4,12 +4,20 @@ export interface MarketComplianceRequirement {
   category: 'BUSINESS' | 'TAX' | 'FOOD_SAFETY';
 }
 
+export interface MarketTimeZoneOption {
+  value: string;
+  label: string;
+  keywords: string[];
+}
+
 export interface MarketDefinition {
   countryCode: string;
   countryName: string;
   currencyCode: string;
   currencySymbol: string;
   currencyMinorUnits: number;
+  defaultTimeZone: string;
+  timeZones: MarketTimeZoneOption[];
   region:
     | 'NORTH_AMERICA'
     | 'INDIA'
@@ -18,6 +26,169 @@ export interface MarketDefinition {
     | 'SOUTH_AMERICA';
   complianceRequirements: MarketComplianceRequirement[];
 }
+
+const timeZone = (
+  value: string,
+  label: string,
+  keywords: string[] = [],
+): MarketTimeZoneOption => ({
+  value,
+  label,
+  keywords: [...new Set([value, label, ...keywords])],
+});
+
+const singleTimeZone = (
+  value: string,
+  label: string,
+  keywords: string[] = [],
+) => [timeZone(value, label, keywords)];
+
+const US_TIME_ZONES = [
+  timeZone('America/New_York', 'Eastern Time', [
+    'new york',
+    'washington',
+    'boston',
+    'miami',
+    'atlanta',
+    'philadelphia',
+    'eastern',
+  ]),
+  timeZone('America/Chicago', 'Central Time', [
+    'chicago',
+    'dallas',
+    'austin',
+    'houston',
+    'minneapolis',
+    'central',
+  ]),
+  timeZone('America/Denver', 'Mountain Time', [
+    'denver',
+    'salt lake city',
+    'boise',
+    'mountain',
+  ]),
+  timeZone('America/Phoenix', 'Arizona Time', ['phoenix', 'arizona']),
+  timeZone('America/Los_Angeles', 'Pacific Time', [
+    'los angeles',
+    'san francisco',
+    'seattle',
+    'portland',
+    'san diego',
+    'pacific',
+    'california',
+  ]),
+  timeZone('America/Anchorage', 'Alaska Time', ['anchorage', 'alaska']),
+  timeZone('Pacific/Honolulu', 'Hawaii Time', ['honolulu', 'hawaii']),
+];
+
+const CANADA_TIME_ZONES = [
+  timeZone('America/Toronto', 'Eastern Time', [
+    'toronto',
+    'ottawa',
+    'montreal',
+    'quebec',
+    'ontario',
+  ]),
+  timeZone('America/Winnipeg', 'Central Time', ['winnipeg', 'manitoba']),
+  timeZone('America/Regina', 'Saskatchewan Time', [
+    'regina',
+    'saskatoon',
+    'saskatchewan',
+  ]),
+  timeZone('America/Edmonton', 'Mountain Time', [
+    'edmonton',
+    'calgary',
+    'alberta',
+  ]),
+  timeZone('America/Vancouver', 'Pacific Time', [
+    'vancouver',
+    'victoria',
+    'british columbia',
+  ]),
+  timeZone('America/Halifax', 'Atlantic Time', [
+    'halifax',
+    'nova scotia',
+    'new brunswick',
+  ]),
+  timeZone('America/St_Johns', 'Newfoundland Time', [
+    "st john's",
+    'st. johns',
+    'newfoundland',
+  ]),
+];
+
+const MEXICO_TIME_ZONES = [
+  timeZone('America/Mexico_City', 'Central Mexico Time', [
+    'mexico city',
+    'ciudad de mexico',
+    'monterrey',
+    'guadalajara',
+    'central',
+  ]),
+  timeZone('America/Cancun', 'Eastern Mexico Time', ['cancun', 'quintana roo']),
+  timeZone('America/Chihuahua', 'Mountain Mexico Time', ['chihuahua']),
+  timeZone('America/Mazatlan', 'Pacific Mexico Time', ['mazatlan', 'sinaloa']),
+  timeZone('America/Tijuana', 'Baja California Time', ['tijuana', 'baja']),
+];
+
+const AUSTRALIA_TIME_ZONES = [
+  timeZone('Australia/Sydney', 'Eastern Time - Sydney / Melbourne', [
+    'sydney',
+    'melbourne',
+    'canberra',
+    'new south wales',
+    'victoria',
+  ]),
+  timeZone('Australia/Brisbane', 'Eastern Time - Queensland', [
+    'brisbane',
+    'queensland',
+  ]),
+  timeZone('Australia/Adelaide', 'Central Time - Adelaide', [
+    'adelaide',
+    'south australia',
+  ]),
+  timeZone('Australia/Darwin', 'Central Time - Darwin', [
+    'darwin',
+    'northern territory',
+  ]),
+  timeZone('Australia/Perth', 'Western Time - Perth', [
+    'perth',
+    'western australia',
+  ]),
+  timeZone('Australia/Hobart', 'Tasmania Time', ['hobart', 'tasmania']),
+];
+
+const EURO_AREA_TIME_ZONES: Record<string, MarketTimeZoneOption[]> = {
+  AT: singleTimeZone('Europe/Vienna', 'Austria Time', ['vienna']),
+  BE: singleTimeZone('Europe/Brussels', 'Belgium Time', ['brussels']),
+  BG: singleTimeZone('Europe/Sofia', 'Bulgaria Time', ['sofia']),
+  HR: singleTimeZone('Europe/Zagreb', 'Croatia Time', ['zagreb']),
+  CY: singleTimeZone('Asia/Nicosia', 'Cyprus Time', ['nicosia']),
+  EE: singleTimeZone('Europe/Tallinn', 'Estonia Time', ['tallinn']),
+  FI: singleTimeZone('Europe/Helsinki', 'Finland Time', ['helsinki']),
+  FR: singleTimeZone('Europe/Paris', 'France Time', ['paris']),
+  DE: singleTimeZone('Europe/Berlin', 'Germany Time', ['berlin']),
+  GR: singleTimeZone('Europe/Athens', 'Greece Time', ['athens']),
+  IE: singleTimeZone('Europe/Dublin', 'Ireland Time', ['dublin']),
+  IT: singleTimeZone('Europe/Rome', 'Italy Time', ['rome', 'milan']),
+  LV: singleTimeZone('Europe/Riga', 'Latvia Time', ['riga']),
+  LT: singleTimeZone('Europe/Vilnius', 'Lithuania Time', ['vilnius']),
+  LU: singleTimeZone('Europe/Luxembourg', 'Luxembourg Time', ['luxembourg']),
+  MT: singleTimeZone('Europe/Malta', 'Malta Time', ['valletta']),
+  NL: singleTimeZone('Europe/Amsterdam', 'Netherlands Time', ['amsterdam']),
+  PT: [
+    timeZone('Europe/Lisbon', 'Portugal Mainland Time', ['lisbon', 'porto']),
+    timeZone('Atlantic/Madeira', 'Madeira Time', ['madeira']),
+    timeZone('Atlantic/Azores', 'Azores Time', ['azores']),
+  ],
+  SK: singleTimeZone('Europe/Bratislava', 'Slovakia Time', ['bratislava']),
+  SI: singleTimeZone('Europe/Ljubljana', 'Slovenia Time', ['ljubljana']),
+  ES: [
+    timeZone('Europe/Madrid', 'Spain Mainland Time', ['madrid', 'barcelona']),
+    timeZone('Atlantic/Canary', 'Canary Islands Time', ['canary']),
+    timeZone('Africa/Ceuta', 'Ceuta Time', ['ceuta']),
+  ],
+};
 
 const foodBusinessRegistration: MarketComplianceRequirement = {
   key: 'food_business_registration',
@@ -42,15 +213,23 @@ const euroAreaComplianceRequirements: MarketComplianceRequirement[] = [
 const euroAreaMarket = (
   countryCode: string,
   countryName: string,
-): MarketDefinition => ({
-  countryCode,
-  countryName,
-  currencyCode: 'EUR',
-  currencySymbol: '€',
-  currencyMinorUnits: 2,
-  region: 'EURO_AREA',
-  complianceRequirements: euroAreaComplianceRequirements,
-});
+): MarketDefinition => {
+  const timeZones =
+    EURO_AREA_TIME_ZONES[countryCode] ??
+    singleTimeZone('Europe/Paris', `${countryName} Time`, [countryName]);
+
+  return {
+    countryCode,
+    countryName,
+    currencyCode: 'EUR',
+    currencySymbol: '€',
+    currencyMinorUnits: 2,
+    defaultTimeZone: timeZones[0].value,
+    timeZones,
+    region: 'EURO_AREA',
+    complianceRequirements: euroAreaComplianceRequirements,
+  };
+};
 
 export const MARKETS: MarketDefinition[] = [
   {
@@ -59,6 +238,8 @@ export const MARKETS: MarketDefinition[] = [
     currencyCode: 'USD',
     currencySymbol: '$',
     currencyMinorUnits: 2,
+    defaultTimeZone: 'America/New_York',
+    timeZones: US_TIME_ZONES,
     region: 'NORTH_AMERICA',
     complianceRequirements: [
       {
@@ -80,6 +261,8 @@ export const MARKETS: MarketDefinition[] = [
     currencyCode: 'CAD',
     currencySymbol: '$',
     currencyMinorUnits: 2,
+    defaultTimeZone: 'America/Toronto',
+    timeZones: CANADA_TIME_ZONES,
     region: 'NORTH_AMERICA',
     complianceRequirements: [
       {
@@ -101,6 +284,8 @@ export const MARKETS: MarketDefinition[] = [
     currencyCode: 'MXN',
     currencySymbol: '$',
     currencyMinorUnits: 2,
+    defaultTimeZone: 'America/Mexico_City',
+    timeZones: MEXICO_TIME_ZONES,
     region: 'NORTH_AMERICA',
     complianceRequirements: [
       {
@@ -126,6 +311,18 @@ export const MARKETS: MarketDefinition[] = [
     currencyCode: 'INR',
     currencySymbol: '₹',
     currencyMinorUnits: 2,
+    defaultTimeZone: 'Asia/Kolkata',
+    timeZones: singleTimeZone('Asia/Kolkata', 'India Standard Time', [
+      'india',
+      'mumbai',
+      'delhi',
+      'bengaluru',
+      'bangalore',
+      'pune',
+      'kolkata',
+      'chennai',
+      'hyderabad',
+    ]),
     region: 'INDIA',
     complianceRequirements: [
       {
@@ -147,6 +344,8 @@ export const MARKETS: MarketDefinition[] = [
     currencyCode: 'AUD',
     currencySymbol: '$',
     currencyMinorUnits: 2,
+    defaultTimeZone: 'Australia/Sydney',
+    timeZones: AUSTRALIA_TIME_ZONES,
     region: 'AUSTRALIA',
     complianceRequirements: [
       {
@@ -164,6 +363,18 @@ export const MARKETS: MarketDefinition[] = [
     currencyCode: 'BRL',
     currencySymbol: 'R$',
     currencyMinorUnits: 2,
+    defaultTimeZone: 'America/Sao_Paulo',
+    timeZones: [
+      timeZone('America/Sao_Paulo', 'Brasilia / Sao Paulo Time', [
+        'sao paulo',
+        'são paulo',
+        'rio de janeiro',
+        'brasilia',
+        'brasília',
+      ]),
+      timeZone('America/Manaus', 'Amazon Time', ['manaus', 'amazonas']),
+      timeZone('America/Rio_Branco', 'Acre Time', ['rio branco', 'acre']),
+    ],
     region: 'SOUTH_AMERICA',
     complianceRequirements: [
       { key: 'cnpj', label: 'CNPJ', category: 'BUSINESS' },
@@ -185,6 +396,12 @@ export const MARKETS: MarketDefinition[] = [
     currencyCode: 'ARS',
     currencySymbol: '$',
     currencyMinorUnits: 2,
+    defaultTimeZone: 'America/Argentina/Buenos_Aires',
+    timeZones: singleTimeZone(
+      'America/Argentina/Buenos_Aires',
+      'Argentina Time',
+      ['buenos aires', 'argentina'],
+    ),
     region: 'SOUTH_AMERICA',
     complianceRequirements: [
       { key: 'cuit', label: 'CUIT', category: 'BUSINESS' },
@@ -198,6 +415,12 @@ export const MARKETS: MarketDefinition[] = [
     currencyCode: 'COP',
     currencySymbol: '$',
     currencyMinorUnits: 2,
+    defaultTimeZone: 'America/Bogota',
+    timeZones: singleTimeZone('America/Bogota', 'Colombia Time', [
+      'bogota',
+      'bogotá',
+      'colombia',
+    ]),
     region: 'SOUTH_AMERICA',
     complianceRequirements: [
       { key: 'nit', label: 'NIT', category: 'BUSINESS' },
@@ -215,6 +438,8 @@ export const MARKETS: MarketDefinition[] = [
     currencyCode: 'PEN',
     currencySymbol: 'S/',
     currencyMinorUnits: 2,
+    defaultTimeZone: 'America/Lima',
+    timeZones: singleTimeZone('America/Lima', 'Peru Time', ['lima', 'peru']),
     region: 'SOUTH_AMERICA',
     complianceRequirements: [
       { key: 'ruc', label: 'RUC', category: 'BUSINESS' },
@@ -271,3 +496,41 @@ export const findMarket = (
   const normalizedName = countryName?.trim().toLowerCase();
   return normalizedName ? marketsByCountryName.get(normalizedName) : undefined;
 };
+
+const normalizeSearchText = (value: string) =>
+  value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+export const inferMarketTimeZone = (
+  market: MarketDefinition,
+  placeParts: Array<string | null | undefined>,
+) => {
+  const placeText = normalizeSearchText(
+    placeParts.filter(Boolean).join(' '),
+  ).trim();
+
+  if (placeText) {
+    const matched = market.timeZones.find((option) =>
+      option.keywords.some((keyword) =>
+        placeText.includes(normalizeSearchText(keyword)),
+      ),
+    );
+
+    if (matched) {
+      return matched.value;
+    }
+  }
+
+  return market.defaultTimeZone;
+};
+
+export const isMarketTimeZone = (
+  market: MarketDefinition,
+  timezone: string | undefined,
+) =>
+  Boolean(
+    timezone &&
+    market.timeZones.some((option) => option.value === timezone.trim()),
+  );

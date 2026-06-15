@@ -1,0 +1,93 @@
+import { ConfigService } from '@nestjs/config';
+
+export const APPWRITE_TABLE_ID_ENV = {
+  tenantProfiles: 'APPWRITE_TABLE_TENANT_PROFILES',
+  userProfiles: 'APPWRITE_TABLE_USER_PROFILES',
+  roles: 'APPWRITE_TABLE_ROLES',
+  userRoleAssignments: 'APPWRITE_TABLE_USER_ROLE_ASSIGNMENTS',
+  onboardingProgress: 'APPWRITE_TABLE_ONBOARDING_PROGRESS',
+  auditLogs: 'APPWRITE_TABLE_AUDIT_LOGS',
+  locations: 'APPWRITE_TABLE_LOCATIONS',
+  products: 'APPWRITE_TABLE_PRODUCTS',
+  productVariants: 'APPWRITE_TABLE_PRODUCT_VARIANTS',
+  productImports: 'APPWRITE_TABLE_PRODUCT_IMPORTS',
+  recipes: 'APPWRITE_TABLE_RECIPES',
+  recipeComponents: 'APPWRITE_TABLE_RECIPE_COMPONENTS',
+  inventoryItems: 'APPWRITE_TABLE_INVENTORY_ITEMS',
+  inventoryImports: 'APPWRITE_TABLE_INVENTORY_IMPORTS',
+  locationProductVariantSettings:
+    'APPWRITE_TABLE_LOCATION_PRODUCT_VARIANT_SETTINGS',
+  locationInventoryItemSettings:
+    'APPWRITE_TABLE_LOCATION_INVENTORY_ITEM_SETTINGS',
+  inventoryBalances: 'APPWRITE_TABLE_INVENTORY_BALANCES',
+  inventoryMovements: 'APPWRITE_TABLE_INVENTORY_MOVEMENTS',
+  inventoryTransactions: 'APPWRITE_TABLE_INVENTORY_TRANSACTIONS',
+  productionBatches: 'APPWRITE_TABLE_PRODUCTION_BATCHES',
+  productionConsumption: 'APPWRITE_TABLE_PRODUCTION_CONSUMPTION',
+  productionOutput: 'APPWRITE_TABLE_PRODUCTION_OUTPUT',
+  suppliers: 'APPWRITE_TABLE_SUPPLIERS',
+  supplierItemMappings: 'APPWRITE_TABLE_SUPPLIER_ITEM_MAPPINGS',
+  locationSupplierItemSettings:
+    'APPWRITE_TABLE_LOCATION_SUPPLIER_ITEM_SETTINGS',
+  procurementRequests: 'APPWRITE_TABLE_PROCUREMENT_REQUESTS',
+  procurementRequestItems: 'APPWRITE_TABLE_PROCUREMENT_REQUEST_ITEMS',
+  supplierRequests: 'APPWRITE_TABLE_SUPPLIER_REQUESTS',
+  supplierRequestItems: 'APPWRITE_TABLE_SUPPLIER_REQUEST_ITEMS',
+  supplierMessageThreads: 'APPWRITE_TABLE_SUPPLIER_MESSAGE_THREADS',
+  supplierMessages: 'APPWRITE_TABLE_SUPPLIER_MESSAGES',
+  supplierQuotations: 'APPWRITE_TABLE_SUPPLIER_QUOTATIONS',
+  purchaseOrders: 'APPWRITE_TABLE_PURCHASE_ORDERS',
+  purchaseOrderItems: 'APPWRITE_TABLE_PURCHASE_ORDER_ITEMS',
+  goodsReceipts: 'APPWRITE_TABLE_GOODS_RECEIPTS',
+  goodsReceiptItems: 'APPWRITE_TABLE_GOODS_RECEIPT_ITEMS',
+  wasteEvents: 'APPWRITE_TABLE_WASTE_EVENTS',
+} as const;
+
+export const APPWRITE_DEFAULT_TABLE_IDS = {
+  tenantProfiles: 'tenant_profiles',
+  userProfiles: 'user_profiles',
+  roles: 'roles',
+  userRoleAssignments: 'user_role_assignments',
+  onboardingProgress: 'onboarding_progress',
+  auditLogs: 'audit_logs',
+  locations: 'locations',
+  products: 'products',
+  productVariants: 'product_variants',
+  productImports: 'product_imports',
+  recipes: 'recipes',
+  recipeComponents: 'recipe_components',
+  inventoryItems: 'inventory_items',
+  inventoryImports: 'inventory_imports',
+  locationProductVariantSettings: 'location_product_variant_settings',
+  locationInventoryItemSettings: 'location_inventory_item_settings',
+  inventoryBalances: 'inventory_balances',
+  inventoryMovements: 'inventory_movements',
+  inventoryTransactions: 'inventory_transactions',
+  productionBatches: 'production_batches',
+  productionConsumption: 'production_consumption',
+  productionOutput: 'production_output',
+  suppliers: 'suppliers',
+  supplierItemMappings: 'supplier_item_mappings',
+  locationSupplierItemSettings: 'location_supplier_item_settings',
+  procurementRequests: 'procurement_requests',
+  procurementRequestItems: 'procurement_request_items',
+  supplierRequests: 'supplier_requests',
+  supplierRequestItems: 'supplier_request_items',
+  supplierMessageThreads: 'supplier_message_threads',
+  supplierMessages: 'supplier_messages',
+  supplierQuotations: 'supplier_quotations',
+  purchaseOrders: 'purchase_orders',
+  purchaseOrderItems: 'purchase_order_items',
+  goodsReceipts: 'goods_receipts',
+  goodsReceiptItems: 'goods_receipt_items',
+  wasteEvents: 'waste_events',
+} as const;
+
+export type AppwriteOperationalTable = keyof typeof APPWRITE_DEFAULT_TABLE_IDS;
+
+export const resolveAppwriteTableId = (
+  configService: ConfigService,
+  table: AppwriteOperationalTable,
+) =>
+  configService.get<string>(APPWRITE_TABLE_ID_ENV[table])?.trim() ||
+  APPWRITE_DEFAULT_TABLE_IDS[table];

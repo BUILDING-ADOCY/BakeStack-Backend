@@ -17,8 +17,12 @@ describe('RecipesService', () => {
   const auditService = {
     log: jest.fn(),
   } as any;
+  const appwriteMirror = {
+    upsertOperationalRow: jest.fn().mockResolvedValue({ skipped: false }),
+    deleteOperationalRow: jest.fn().mockResolvedValue({ skipped: false }),
+  } as any;
 
-  const service = new RecipesService(prisma, auditService);
+  const service = new RecipesService(prisma, auditService, appwriteMirror);
 
   beforeEach(() => {
     jest.clearAllMocks();

@@ -4,6 +4,7 @@ import { InventoryService } from '../src/inventory/inventory.service';
 describe('InventoryService', () => {
   let prisma: any;
   let auditService: any;
+  let appwriteMirror: any;
   let service: InventoryService;
 
   beforeEach(() => {
@@ -68,6 +69,10 @@ describe('InventoryService', () => {
         }),
         upsert: jest.fn(),
       },
+      productVariant: {
+        findMany: jest.fn().mockResolvedValue([]),
+        updateMany: jest.fn(),
+      },
       inventoryImport: {
         create: jest.fn().mockResolvedValue({
           id: 'import-1',
@@ -117,7 +122,86 @@ describe('InventoryService', () => {
     };
 
     auditService = { log: jest.fn() };
-    service = new InventoryService(prisma, auditService);
+    appwriteMirror = {
+      upsertOperationalRow: jest.fn().mockResolvedValue({ skipped: false }),
+      deleteOperationalRow: jest.fn().mockResolvedValue({ skipped: false }),
+    };
+    service = new InventoryService(prisma, auditService, appwriteMirror);
+  });
+
+  it('deletes an inventory item, unlinks active product variants, and cleans Appwrite rows', async () => {
+    prisma.locationInventoryItemSetting.findMany.mockResolvedValueOnce([
+      { id: 'setting-1' },
+    ]);
+    prisma.productVariant.findMany.mockResolvedValueOnce([
+      {
+        id: 'variant-1',
+        tenantId: 'tenant-1',
+        productId: 'product-1',
+        inventoryItemId: 'item-1',
+        sku: 'CAKE-500',
+        name: 'Cake 500g',
+        unit: 'each',
+        defaultSellingPrice: new Prisma.Decimal(650),
+        currencyCode: 'INR',
+        status: 'ACTIVE',
+        createdAt: new Date('2026-05-09T00:00:00.000Z'),
+        updatedAt: new Date('2026-05-09T00:00:00.000Z'),
+        deletedAt: null,
+      },
+    ]);
+    prisma.inventoryItem.update.mockImplementation(({ data }: any) => ({
+      id: 'item-1',
+      tenantId: 'tenant-1',
+      name: 'Flour',
+      type: 'RAW_MATERIAL',
+      defaultUom: 'kg',
+      unitCost: new Prisma.Decimal(2.5),
+      deletedAt: data.deletedAt,
+    }));
+    prisma.productVariant.updateMany.mockResolvedValue({ count: 1 });
+
+    const result = await service.removeItem('tenant-1', 'item-1');
+
+    expect(prisma.inventoryItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'item-1' },
+        data: {
+          deletedAt: expect.any(Date),
+        },
+      }),
+    );
+    expect(prisma.productVariant.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId: 'tenant-1',
+          id: { in: ['variant-1'] },
+          deletedAt: null,
+        },
+        data: {
+          inventoryItemId: null,
+        },
+      }),
+    );
+    expect(appwriteMirror.deleteOperationalRow).toHaveBeenCalledWith(
+      'inventoryItems',
+      'item-1',
+    );
+    expect(appwriteMirror.deleteOperationalRow).toHaveBeenCalledWith(
+      'locationInventoryItemSettings',
+      'setting-1',
+    );
+    expect(appwriteMirror.upsertOperationalRow).toHaveBeenCalledWith(
+      'productVariants',
+      expect.objectContaining({
+        id: 'variant-1',
+        tenantId: 'tenant-1',
+        data: expect.objectContaining({
+          inventoryItemId: null,
+        }),
+      }),
+    );
+    expect(result.deletedAt).toEqual(expect.any(Date));
   });
 
   it('opening stock creates inventory movement', async () => {

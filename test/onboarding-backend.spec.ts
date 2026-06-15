@@ -9,6 +9,12 @@ import { LocationsController } from '../src/locations/locations.controller';
 import { LocationsService } from '../src/locations/locations.service';
 import { OnboardingService } from '../src/onboarding/onboarding.service';
 
+const buildAppwriteMirrorMock = () =>
+  ({
+    upsertOperationalRow: jest.fn().mockResolvedValue({ skipped: false }),
+    deleteOperationalRow: jest.fn().mockResolvedValue({ skipped: false }),
+  }) as any;
+
 describe('Onboarding backend foundation', () => {
   test('register provisioning creates tenant and onboarding progress', async () => {
     const createdTenant = {
@@ -170,6 +176,82 @@ describe('Onboarding backend foundation', () => {
     );
   });
 
+  test('location creation derives timezone from market and place', async () => {
+    const tx = {
+      location: {
+        count: jest.fn().mockResolvedValue(0),
+        updateMany: jest.fn(),
+        create: jest.fn(async ({ data }) => ({ id: 'location-1', ...data })),
+      },
+      onboardingProgress: {
+        updateMany: jest.fn().mockResolvedValue(undefined),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn(
+        async (callback: (executor: typeof tx) => unknown) => callback(tx),
+      ),
+    } as any;
+    const auditService = { log: jest.fn() } as any;
+    const service = new LocationsService(
+      prisma,
+      auditService,
+      buildAppwriteMirrorMock(),
+    );
+
+    const location = await service.create('tenant-a', 'user-a', 'corr-1', {
+      name: 'LA Cafe',
+      type: 'CAFE' as any,
+      addressLine1: '10 Sunset Boulevard',
+      city: 'Los Angeles',
+      state: 'California',
+      countryCode: 'US',
+    });
+
+    expect(location).toMatchObject({
+      country: 'United States',
+      countryCode: 'US',
+      currencyCode: 'USD',
+      timezone: 'America/Los_Angeles',
+    });
+  });
+
+  test('location creation rejects a timezone outside the selected country', async () => {
+    const tx = {
+      location: {
+        count: jest.fn().mockResolvedValue(0),
+        updateMany: jest.fn(),
+        create: jest.fn(),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn(
+        async (callback: (executor: typeof tx) => unknown) => callback(tx),
+      ),
+    } as any;
+    const auditService = { log: jest.fn() } as any;
+    const service = new LocationsService(
+      prisma,
+      auditService,
+      buildAppwriteMirrorMock(),
+    );
+
+    await expect(
+      service.create('tenant-a', 'user-a', 'corr-1', {
+        name: 'Mumbai Cafe',
+        type: 'CAFE' as any,
+        addressLine1: '10 Market Road',
+        city: 'Mumbai',
+        state: 'Maharashtra',
+        countryCode: 'IN',
+        timezone: 'America/New_York',
+      }),
+    ).rejects.toMatchObject({
+      code: 'UNSUPPORTED_TIMEZONE',
+    });
+    expect(tx.location.create).not.toHaveBeenCalled();
+  });
+
   test('location profile update is rejected when the location is outside the tenant', async () => {
     const prisma = {
       location: {
@@ -177,7 +259,11 @@ describe('Onboarding backend foundation', () => {
       },
     } as any;
     const auditService = { log: jest.fn() } as any;
-    const service = new LocationsService(prisma, auditService);
+    const service = new LocationsService(
+      prisma,
+      auditService,
+      buildAppwriteMirrorMock(),
+    );
 
     await expect(
       service.upsertProfile('tenant-a', 'location-b', 'user-a', 'corr-1', {}),

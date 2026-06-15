@@ -4,6 +4,7 @@ import { ProductsService } from '../src/products/products.service';
 describe('ProductsService', () => {
   let prisma: any;
   let auditService: any;
+  let appwriteMirror: any;
   let service: ProductsService;
 
   beforeEach(() => {
@@ -23,6 +24,10 @@ describe('ProductsService', () => {
         create: jest.fn(),
         findFirst: jest.fn().mockResolvedValue(null),
         update: jest.fn(),
+        updateMany: jest.fn(),
+      },
+      locationProductVariantSetting: {
+        findMany: jest.fn().mockResolvedValue([]),
       },
       productImport: {
         create: jest.fn().mockResolvedValue({
@@ -58,7 +63,78 @@ describe('ProductsService', () => {
     };
 
     auditService = { log: jest.fn() };
-    service = new ProductsService(prisma, auditService);
+    appwriteMirror = {
+      upsertOperationalRow: jest.fn().mockResolvedValue({ skipped: false }),
+      deleteOperationalRow: jest.fn().mockResolvedValue({ skipped: false }),
+    };
+    service = new ProductsService(prisma, auditService, appwriteMirror);
+  });
+
+  it('deletes a product, its active variants, and Appwrite mirror rows', async () => {
+    prisma.product.findFirst.mockResolvedValue({
+      id: 'product-1',
+      tenantId: 'tenant-1',
+      categoryId: null,
+      name: 'Chocolate Cake',
+      description: null,
+      status: 'ACTIVE',
+      allergenJson: null,
+      shelfLifeHours: 48,
+      variants: [{ id: 'variant-1' }, { id: 'variant-2' }],
+    });
+    prisma.locationProductVariantSetting.findMany.mockResolvedValue([
+      { id: 'setting-1' },
+    ]);
+    prisma.product.update.mockImplementation(({ data }: any) => ({
+      id: 'product-1',
+      tenantId: 'tenant-1',
+      name: 'Chocolate Cake',
+      status: data.status,
+      deletedAt: data.deletedAt,
+    }));
+    prisma.productVariant.updateMany.mockResolvedValue({ count: 2 });
+
+    const result = await service.remove('tenant-1', 'product-1');
+
+    expect(prisma.product.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'product-1' },
+        data: expect.objectContaining({
+          status: 'ARCHIVED',
+          deletedAt: expect.any(Date),
+        }),
+      }),
+    );
+    expect(prisma.productVariant.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId: 'tenant-1',
+          id: { in: ['variant-1', 'variant-2'] },
+          deletedAt: null,
+        },
+        data: expect.objectContaining({
+          status: 'ARCHIVED',
+          deletedAt: expect.any(Date),
+        }),
+      }),
+    );
+    expect(appwriteMirror.deleteOperationalRow).toHaveBeenCalledWith(
+      'products',
+      'product-1',
+    );
+    expect(appwriteMirror.deleteOperationalRow).toHaveBeenCalledWith(
+      'productVariants',
+      'variant-1',
+    );
+    expect(appwriteMirror.deleteOperationalRow).toHaveBeenCalledWith(
+      'productVariants',
+      'variant-2',
+    );
+    expect(appwriteMirror.deleteOperationalRow).toHaveBeenCalledWith(
+      'locationProductVariantSettings',
+      'setting-1',
+    );
+    expect(result.status).toBe('ARCHIVED');
   });
 
   it('imports bakery products with categories and variants', async () => {

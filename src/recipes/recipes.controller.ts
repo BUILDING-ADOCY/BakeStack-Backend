@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -96,6 +97,21 @@ export class RecipesController {
         id,
       ),
       message: 'Recipe activated successfully',
+    };
+  }
+
+  @Delete(':id')
+  async remove(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: OptionalTenantScopeDto,
+  ) {
+    return {
+      data: await this.recipesService.remove(
+        resolveTenantId(request, query.tenantId),
+        id,
+      ),
+      message: 'Recipe archived successfully',
     };
   }
 

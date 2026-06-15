@@ -97,15 +97,25 @@ const buildPrisma = () => {
   return prisma;
 };
 
+const buildAppwriteMirrorMock = () =>
+  ({
+    upsertOperationalRow: jest.fn().mockResolvedValue({ skipped: false }),
+    deleteOperationalRow: jest.fn().mockResolvedValue({ skipped: false }),
+  }) as any;
+
+const buildService = (prisma: any) =>
+  new LocationsService(
+    prisma as any,
+    {
+      log: jest.fn(),
+    } as any,
+    buildAppwriteMirrorMock(),
+  );
+
 describe('LocationsService money foundation', () => {
   it('derives currency from the selected market when creating a location', async () => {
     const prisma = buildPrisma();
-    const service = new LocationsService(
-      prisma as any,
-      {
-        log: jest.fn(),
-      } as any,
-    );
+    const service = buildService(prisma);
 
     const created = await service.create('tenant-1', 'user-1', 'corr-1', {
       tenantId: 'ignored-client-tenant',
@@ -126,12 +136,7 @@ describe('LocationsService money foundation', () => {
   it('creates additional tenant stores as secondary locations by default', async () => {
     const prisma = buildPrisma();
     prisma.location.count.mockResolvedValue(1);
-    const service = new LocationsService(
-      prisma as any,
-      {
-        log: jest.fn(),
-      } as any,
-    );
+    const service = buildService(prisma);
 
     const created = await service.create('tenant-1', 'user-1', 'corr-1', {
       name: 'Downtown Cafe',
@@ -152,12 +157,7 @@ describe('LocationsService money foundation', () => {
   it('locks a location currency after operational activity exists', async () => {
     const prisma = buildPrisma();
     prisma.inventoryMovement.count.mockResolvedValue(1);
-    const service = new LocationsService(
-      prisma as any,
-      {
-        log: jest.fn(),
-      } as any,
-    );
+    const service = buildService(prisma);
 
     await expect(
       service.update('tenant-1', 'location-1', 'user-1', 'corr-1', {
@@ -169,12 +169,7 @@ describe('LocationsService money foundation', () => {
 
   it('resets money overrides when market changes before activity starts', async () => {
     const prisma = buildPrisma();
-    const service = new LocationsService(
-      prisma as any,
-      {
-        log: jest.fn(),
-      } as any,
-    );
+    const service = buildService(prisma);
 
     const updated = await service.update(
       'tenant-1',
@@ -216,12 +211,7 @@ describe('LocationsService money foundation', () => {
       countryCode: 'US',
       currencyCode: 'USD',
     });
-    const service = new LocationsService(
-      prisma as any,
-      {
-        log: jest.fn(),
-      } as any,
-    );
+    const service = buildService(prisma);
 
     await service.upsertProfile('tenant-1', 'location-1', 'user-1', 'corr-1', {
       averageDailyRevenue: 1250,
@@ -242,12 +232,7 @@ describe('LocationsService money foundation', () => {
       countryCode: 'AU',
       currencyCode: 'AUD',
     });
-    const service = new LocationsService(
-      prisma as any,
-      {
-        log: jest.fn(),
-      } as any,
-    );
+    const service = buildService(prisma);
 
     const setting = await service.upsertInventoryItemSetting(
       'tenant-1',
@@ -265,12 +250,7 @@ describe('LocationsService money foundation', () => {
   it('reports readiness and a locked currency when batches exist', async () => {
     const prisma = buildPrisma();
     prisma.productionBatch.count.mockResolvedValue(1);
-    const service = new LocationsService(
-      prisma as any,
-      {
-        log: jest.fn(),
-      } as any,
-    );
+    const service = buildService(prisma);
 
     await expect(
       service.getMoneyReadiness('tenant-1', 'location-1'),
@@ -286,12 +266,7 @@ describe('LocationsService money foundation', () => {
     prisma.productVariant.findMany.mockResolvedValue([{ id: 'variant-1' }]);
     prisma.inventoryItem.findMany.mockResolvedValue([{ id: 'item-1' }]);
     prisma.supplierItem.findMany.mockResolvedValue([{ id: 'supplier-item-1' }]);
-    const service = new LocationsService(
-      prisma as any,
-      {
-        log: jest.fn(),
-      } as any,
-    );
+    const service = buildService(prisma);
 
     await expect(
       service.getMoneyReadiness('tenant-1', 'location-1'),

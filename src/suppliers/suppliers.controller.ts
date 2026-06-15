@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -72,6 +73,21 @@ export class SuppliersController {
         dto,
       ),
       message: 'Supplier updated successfully',
+    };
+  }
+
+  @Delete('suppliers/:id')
+  async remove(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: OptionalTenantScopeDto,
+  ) {
+    return {
+      data: await this.suppliersService.remove(
+        resolveTenantId(request, query.tenantId),
+        id,
+      ),
+      message: 'Supplier archived successfully',
     };
   }
 

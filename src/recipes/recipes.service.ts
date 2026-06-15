@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { AppwriteMirrorService } from '../appwrite/appwrite-mirror.service';
 import { AuditService } from '../audit/audit.service';
 import { DomainException } from '../common/exceptions/domain.exception';
 import { getInventoryItemMoneySettings } from '../common/prisma/location-money';
@@ -14,12 +15,13 @@ export class RecipesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly appwriteMirror: AppwriteMirrorService,
   ) {}
 
   async create(dto: CreateRecipeDto) {
     await this.ensureVariantExists(dto.tenantId, dto.productVariantId);
 
-    return this.prisma.$transaction(async (tx) => {
+    const recipe = await this.prisma.$transaction(async (tx) => {
       const recipe = await tx.recipe.create({
         data: {
           tenantId: dto.tenantId,
@@ -69,6 +71,10 @@ export class RecipesService {
 
       return recipe;
     });
+
+    await this.mirrorRecipe(recipe);
+
+    return recipe;
   }
 
   findAll(query: QueryRecipesDto) {
@@ -124,7 +130,7 @@ export class RecipesService {
       throw new DomainException('RECIPE_NOT_FOUND', 'Recipe not found', 404);
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       if (dto.components) {
         await tx.recipeComponent.deleteMany({
           where: { tenantId, recipeId: recipe.id },
@@ -173,6 +179,14 @@ export class RecipesService {
 
       return updated;
     });
+
+    if (updated.deletedAt) {
+      await this.appwriteMirror.deleteOperationalRow('recipes', updated.id);
+    } else {
+      await this.mirrorRecipe(updated);
+    }
+
+    return updated;
   }
 
   async activate(tenantId: string, id: string) {
@@ -184,7 +198,7 @@ export class RecipesService {
       throw new DomainException('RECIPE_NOT_FOUND', 'Recipe not found', 404);
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       await tx.recipe.updateMany({
         where: {
           tenantId,
@@ -216,6 +230,61 @@ export class RecipesService {
       );
 
       return updated;
+    });
+
+    await this.mirrorRecipe(updated);
+
+    return updated;
+  }
+
+  async remove(tenantId: string, id: string) {
+    const recipe = await this.prisma.recipe.findFirst({
+      where: { tenantId, id, deletedAt: null },
+    });
+
+    if (!recipe) {
+      throw new DomainException('RECIPE_NOT_FOUND', 'Recipe not found', 404);
+    }
+
+    const updated = await this.prisma.recipe.update({
+      where: { id: recipe.id },
+      data: {
+        status: 'ARCHIVED',
+        isActive: false,
+        deletedAt: new Date(),
+      },
+    });
+
+    await this.auditService.log({
+      tenantId,
+      action: 'recipe.archived',
+      entityType: 'Recipe',
+      entityId: updated.id,
+      beforeJson: recipe as unknown as Prisma.InputJsonValue,
+      afterJson: updated as unknown as Prisma.InputJsonValue,
+    });
+
+    await this.appwriteMirror.deleteOperationalRow('recipes', updated.id);
+
+    return updated;
+  }
+
+  private async mirrorRecipe(recipe: {
+    id: string;
+    tenantId: string;
+    productVariantId: string;
+    status: string;
+    name: string;
+    createdById?: string | null;
+  }) {
+    await this.appwriteMirror.upsertOperationalRow('recipes', {
+      id: recipe.id,
+      tenantId: recipe.tenantId,
+      createdById: recipe.createdById,
+      status: recipe.status,
+      name: recipe.name,
+      code: recipe.productVariantId,
+      data: recipe,
     });
   }
 

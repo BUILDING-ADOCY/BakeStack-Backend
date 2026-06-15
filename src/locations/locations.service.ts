@@ -1,10 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, SetupStepStatus, type DayOfWeek } from '@prisma/client';
+import { AppwriteMirrorService } from '../appwrite/appwrite-mirror.service';
 import { AuditService } from '../audit/audit.service';
 import { DomainException } from '../common/exceptions/domain.exception';
 import { PrismaService } from '../common/prisma/prisma.service';
 import {
   findMarket,
+  inferMarketTimeZone,
+  isMarketTimeZone,
   type MarketDefinition,
 } from '../metadata/markets.registry';
 import { CreateLocationDto } from './dto/create-location.dto';
@@ -26,6 +29,7 @@ export class LocationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly appwriteMirror: AppwriteMirrorService,
   ) {}
 
   async create(
@@ -34,7 +38,7 @@ export class LocationsService {
     correlationId: string | undefined,
     dto: CreateLocationDto,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    const location = await this.prisma.$transaction(async (tx) => {
       const existingCount = await tx.location.count({
         where: { tenantId },
       });
@@ -81,6 +85,10 @@ export class LocationsService {
 
       return location;
     });
+
+    await this.mirrorLocation(location);
+
+    return location;
   }
 
   findAll(tenantId: string) {
@@ -279,7 +287,7 @@ export class LocationsService {
       this.requireProductVariant(tenantId, productVariantId),
     ]);
 
-    return this.prisma.$transaction(async (tx) => {
+    const setting = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.locationProductVariantSetting.findFirst({
         where: { tenantId, locationId, productVariantId },
       });
@@ -326,6 +334,8 @@ export class LocationsService {
 
       return setting;
     });
+
+    return setting;
   }
 
   async deleteProductVariantSetting(
@@ -337,7 +347,7 @@ export class LocationsService {
   ) {
     await this.requireLocation(tenantId, locationId);
 
-    return this.prisma.$transaction(async (tx) => {
+    const setting = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.locationProductVariantSetting.findFirst({
         where: { tenantId, locationId, productVariantId },
       });
@@ -401,7 +411,7 @@ export class LocationsService {
       this.requireInventoryItem(tenantId, inventoryItemId),
     ]);
 
-    return this.prisma.$transaction(async (tx) => {
+    const setting = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.locationInventoryItemSetting.findFirst({
         where: { tenantId, locationId, inventoryItemId },
       });
@@ -450,6 +460,8 @@ export class LocationsService {
 
       return setting;
     });
+
+    return setting;
   }
 
   async deleteInventoryItemSetting(
@@ -461,7 +473,7 @@ export class LocationsService {
   ) {
     await this.requireLocation(tenantId, locationId);
 
-    return this.prisma.$transaction(async (tx) => {
+    const setting = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.locationInventoryItemSetting.findFirst({
         where: { tenantId, locationId, inventoryItemId },
       });
@@ -529,7 +541,7 @@ export class LocationsService {
       this.requireSupplierItem(tenantId, supplierItemId),
     ]);
 
-    return this.prisma.$transaction(async (tx) => {
+    const setting = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.locationSupplierItemSetting.findFirst({
         where: { tenantId, locationId, supplierItemId },
       });
@@ -580,6 +592,8 @@ export class LocationsService {
 
       return setting;
     });
+
+    return setting;
   }
 
   async deleteSupplierItemSetting(
@@ -628,8 +642,9 @@ export class LocationsService {
   ) {
     const record = await this.requireLocation(tenantId, id);
     const requestedMarket = this.resolveUpdateMarket(dto);
+    const currentMarket = findMarket(record.countryCode);
 
-    return this.prisma.$transaction(async (tx) => {
+    const location = await this.prisma.$transaction(async (tx) => {
       if (
         requestedMarket &&
         (record.countryCode !== requestedMarket.countryCode ||
@@ -691,7 +706,11 @@ export class LocationsService {
 
       const location = await tx.location.update({
         where: { id: record.id },
-        data: this.toLocationUpdateInput(dto, requestedMarket),
+        data: this.toLocationUpdateInput(
+          dto,
+          requestedMarket,
+          requestedMarket ?? currentMarket,
+        ),
       });
 
       await tx.onboardingProgress.updateMany({
@@ -719,6 +738,31 @@ export class LocationsService {
       );
 
       return location;
+    });
+
+    await this.mirrorLocation(location);
+
+    return location;
+  }
+
+  private async mirrorLocation(location: {
+    id: string;
+    tenantId: string;
+    name: string;
+    type: string;
+    countryCode?: string | null;
+    currencyCode?: string | null;
+    isActive?: boolean | null;
+  }) {
+    await this.appwriteMirror.upsertOperationalRow('locations', {
+      id: location.id,
+      tenantId: location.tenantId,
+      status: location.isActive === false ? 'INACTIVE' : 'ACTIVE',
+      name: location.name,
+      code: location.type,
+      countryCode: location.countryCode,
+      currencyCode: location.currencyCode,
+      data: location,
     });
   }
 
@@ -1175,7 +1219,7 @@ export class LocationsService {
           : undefined,
       phone: dto.phone,
       email: dto.email,
-      timezone: dto.timezone ?? 'Asia/Kolkata',
+      timezone: this.resolveLocationTimeZone(dto, market),
       isPrimary,
       isActive: dto.isActive ?? true,
     };
@@ -1184,8 +1228,15 @@ export class LocationsService {
   private toLocationUpdateInput(
     dto: UpdateLocationDto,
     market: MarketDefinition | undefined,
+    timezoneMarket: MarketDefinition | undefined,
   ): Prisma.LocationUpdateInput {
     const address = this.buildAddress(dto, market);
+    const timezone =
+      dto.timezone !== undefined
+        ? this.resolveLocationTimeZone(dto, timezoneMarket)
+        : market
+          ? this.resolveLocationTimeZone(dto, market)
+          : undefined;
 
     return {
       name: dto.name,
@@ -1215,10 +1266,47 @@ export class LocationsService {
           : undefined,
       phone: dto.phone,
       email: dto.email,
-      timezone: dto.timezone,
+      timezone,
       isPrimary: dto.isPrimary,
       isActive: dto.isActive,
     };
+  }
+
+  private resolveLocationTimeZone(
+    dto: Pick<
+      CreateLocationDto | UpdateLocationDto,
+      'timezone' | 'city' | 'state' | 'address'
+    >,
+    market: MarketDefinition | undefined,
+  ) {
+    if (!market) {
+      return dto.timezone;
+    }
+
+    const requestedTimezone = dto.timezone?.trim();
+    if (requestedTimezone) {
+      if (!isMarketTimeZone(market, requestedTimezone)) {
+        throw new DomainException(
+          'UNSUPPORTED_TIMEZONE',
+          `Timezone ${requestedTimezone} is not supported for ${market.countryName}.`,
+          400,
+          {
+            countryCode: market.countryCode,
+            supportedTimeZones: market.timeZones.map((option) => option.value),
+          },
+        );
+      }
+
+      return requestedTimezone;
+    }
+
+    return inferMarketTimeZone(market, [
+      dto.city,
+      dto.state,
+      this.readAddressValue(dto.address, 'city'),
+      this.readAddressValue(dto.address, 'state'),
+      this.readAddressValue(dto.address, 'region'),
+    ]);
   }
 
   private buildAddress(

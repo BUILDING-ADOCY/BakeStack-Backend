@@ -10,8 +10,12 @@ describe('Tenant isolation', () => {
     const auditService = {
       log: jest.fn(),
     } as any;
+    const appwriteMirror = {
+      upsertOperationalRow: jest.fn().mockResolvedValue({ skipped: false }),
+      deleteOperationalRow: jest.fn().mockResolvedValue({ skipped: false }),
+    } as any;
 
-    const service = new ProductsService(prisma, auditService);
+    const service = new ProductsService(prisma, auditService, appwriteMirror);
     await expect(
       service.findOne('tenant-123', 'product-456'),
     ).rejects.toMatchObject({

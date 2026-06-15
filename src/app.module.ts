@@ -2,6 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
+import { AppwriteMirrorModule } from './appwrite/appwrite-mirror.module';
 import { AuthenticatedGuard } from './auth/authenticated.guard';
 import { AuditModule } from './audit/audit.module';
 import { BusinessProfileModule } from './business-profile/business-profile.module';
@@ -37,6 +38,7 @@ import { validateEnv } from './config/env.validation';
       envFilePath: '.env',
       validate: validateEnv,
     }),
+    AppwriteMirrorModule,
     PrismaModule,
     HealthModule,
     AuthModule,
