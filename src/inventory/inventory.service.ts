@@ -6,6 +6,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { parse } from 'csv-parse/sync';
+import { AppwriteMirrorService } from '../appwrite/appwrite-mirror.service';
 import { AuditService } from '../audit/audit.service';
 import { DomainException } from '../common/exceptions/domain.exception';
 import {
@@ -13,8 +14,10 @@ import {
   InventoryDeltaInput,
   InventoryExecutor,
 } from '../common/prisma/inventory-ledger';
+import { requireInventoryItemMoneySettings } from '../common/prisma/location-money';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { decimal } from '../common/utils/decimal.util';
+import { rateTimesQtyToMinor } from '../common/utils/money.util';
 import { CreateInventoryAdjustmentDto } from './dto/create-inventory-adjustment.dto';
 import { CreateInventoryImportDto } from './dto/create-inventory-import.dto';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
@@ -56,13 +59,14 @@ export class InventoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly appwriteMirror: AppwriteMirrorService,
   ) {}
 
-  createItem(
+  async createItem(
     dto: CreateInventoryItemDto,
     executor: InventoryExecutor = this.prisma,
   ) {
-    return executor.inventoryItem.create({
+    const item = await executor.inventoryItem.create({
       data: {
         ...dto,
         unitCost: decimal(dto.unitCost),
@@ -72,6 +76,12 @@ export class InventoryService {
             : decimal(dto.reorderLevel),
       },
     });
+
+    if (executor === this.prisma) {
+      await this.mirrorInventoryItem(item);
+    }
+
+    return item;
   }
 
   listItems(tenantId: string) {
@@ -79,6 +89,83 @@ export class InventoryService {
       where: { tenantId, deletedAt: null },
       orderBy: { name: 'asc' },
     });
+  }
+
+  async removeItem(tenantId: string, id: string) {
+    const item = await this.prisma.inventoryItem.findFirst({
+      where: { tenantId, id, deletedAt: null },
+    });
+
+    if (!item) {
+      throw new DomainException(
+        'INVENTORY_ITEM_NOT_FOUND',
+        'Inventory item not found',
+        404,
+      );
+    }
+
+    const [locationSettingIds, linkedProductVariants] = await Promise.all([
+      this.prisma.locationInventoryItemSetting.findMany({
+        where: {
+          tenantId,
+          inventoryItemId: item.id,
+        },
+        select: { id: true },
+      }),
+      this.prisma.productVariant.findMany({
+        where: {
+          tenantId,
+          inventoryItemId: item.id,
+          deletedAt: null,
+        },
+      }),
+    ]);
+
+    const linkedProductVariantIds = linkedProductVariants.map(
+      (variant) => variant.id,
+    );
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const updatedItem = await tx.inventoryItem.update({
+        where: { id: item.id },
+        data: {
+          deletedAt: new Date(),
+        },
+      });
+
+      if (linkedProductVariantIds.length > 0) {
+        await tx.productVariant.updateMany({
+          where: {
+            tenantId,
+            id: { in: linkedProductVariantIds },
+            deletedAt: null,
+          },
+          data: {
+            inventoryItemId: null,
+          },
+        });
+      }
+
+      return updatedItem;
+    });
+
+    await Promise.all([
+      this.appwriteMirror.deleteOperationalRow('inventoryItems', updated.id),
+      ...locationSettingIds.map((setting) =>
+        this.appwriteMirror.deleteOperationalRow(
+          'locationInventoryItemSettings',
+          setting.id,
+        ),
+      ),
+      ...linkedProductVariants.map((variant) =>
+        this.mirrorProductVariant({
+          ...variant,
+          inventoryItemId: null,
+        }),
+      ),
+    ]);
+
+    return updated;
   }
 
   listImports(query: QueryInventoryImportsDto) {
@@ -237,6 +324,7 @@ export class InventoryService {
         },
       },
     });
+    await this.mirrorInventoryImport(importJob);
 
     let processedRows = 0;
     let createdItemsCount = 0;
@@ -295,6 +383,7 @@ export class InventoryService {
           }
 
           return {
+            item: importedItem.item,
             created: importedItem.created,
             updated: importedItem.updated,
             openingStockApplied: openingQty !== null && openingQty > 0,
@@ -302,6 +391,9 @@ export class InventoryService {
         });
 
         processedRows += 1;
+        if (result.created || result.updated) {
+          await this.mirrorInventoryItem(result.item);
+        }
         if (result.created) {
           createdItemsCount += 1;
         }
@@ -389,6 +481,7 @@ export class InventoryService {
         },
       },
     });
+    await this.mirrorInventoryImport(updatedImport);
 
     await this.auditService.log({
       tenantId: dto.tenantId,
@@ -407,13 +500,22 @@ export class InventoryService {
     dto: CreateInventoryAdjustmentDto,
     item?: Prisma.InventoryItemGetPayload<Record<string, never>>,
   ) {
-    const resolvedItem =
-      item ??
-      (await this.requireInventoryItem(
+    if (!item) {
+      await this.requireInventoryItem(
         dto.tenantId,
         dto.inventoryItemId,
         executor,
-      ));
+      );
+    }
+    const { currencyCode, settings } = await requireInventoryItemMoneySettings(
+      executor,
+      {
+        tenantId: dto.tenantId,
+        locationId: dto.locationId,
+        inventoryItemIds: [dto.inventoryItemId],
+      },
+    );
+    const unitCost = settings.get(dto.inventoryItemId)!.unitCost!;
     const resolvedLotId =
       dto.adjustmentType === 'DECREASE'
         ? await this.resolveLotIdForReduction(executor, {
@@ -434,7 +536,8 @@ export class InventoryService {
         inventoryItemId: dto.inventoryItemId,
         lotId: resolvedLotId,
         quantityDelta,
-        unitCost: dto.unitCost ?? Number(resolvedItem.unitCost),
+        unitCost: dto.unitCost ?? unitCost,
+        currencyCode,
         movementType:
           dto.movementType ?? InventoryMovementType.STOCK_ADJUSTMENT,
         referenceType: 'InventoryAdjustment',
@@ -527,13 +630,22 @@ export class InventoryService {
     dto: CreateWastageDto,
     item?: Prisma.InventoryItemGetPayload<Record<string, never>>,
   ) {
-    const resolvedItem =
-      item ??
-      (await this.requireInventoryItem(
+    if (!item) {
+      await this.requireInventoryItem(
         dto.tenantId,
         dto.inventoryItemId,
         executor,
-      ));
+      );
+    }
+    const { currencyCode, settings } = await requireInventoryItemMoneySettings(
+      executor,
+      {
+        tenantId: dto.tenantId,
+        locationId: dto.locationId,
+        inventoryItemIds: [dto.inventoryItemId],
+      },
+    );
+    const unitCost = settings.get(dto.inventoryItemId)!.unitCost!;
     const resolvedLotId = await this.resolveLotIdForReduction(executor, {
       tenantId: dto.tenantId,
       locationId: dto.locationId,
@@ -541,7 +653,7 @@ export class InventoryService {
       quantity: dto.quantity,
       lotId: dto.lotId,
     });
-    const costImpact = decimal(dto.quantity).mul(resolvedItem.unitCost);
+    const costImpact = rateTimesQtyToMinor(unitCost, dto.quantity);
 
     const result = await this.recordMovement(
       {
@@ -550,7 +662,8 @@ export class InventoryService {
         inventoryItemId: dto.inventoryItemId,
         lotId: resolvedLotId,
         quantityDelta: -dto.quantity,
-        unitCost: resolvedItem.unitCost,
+        unitCost,
+        currencyCode,
         movementType: InventoryMovementType.WASTAGE,
         referenceType: 'WasteEvent',
         reason: dto.notes ?? dto.reasonCode,
@@ -571,6 +684,7 @@ export class InventoryService {
         reasonCode: dto.reasonCode,
         notes: dto.notes,
         costImpact,
+        currencyCode,
         recordedById: dto.recordedById,
       },
     });
@@ -742,6 +856,59 @@ export class InventoryService {
       created: false,
       updated: true,
     };
+  }
+
+  private async mirrorInventoryItem(item: {
+    id: string;
+    tenantId: string;
+    name: string;
+    type: string;
+  }) {
+    await this.appwriteMirror.upsertOperationalRow('inventoryItems', {
+      id: item.id,
+      tenantId: item.tenantId,
+      status: item.type,
+      name: item.name,
+      data: item,
+    });
+  }
+
+  private async mirrorProductVariant(variant: {
+    id: string;
+    tenantId: string;
+    status: string;
+    name: string;
+    sku: string;
+    inventoryItemId?: string | null;
+    [key: string]: unknown;
+  }) {
+    await this.appwriteMirror.upsertOperationalRow('productVariants', {
+      id: variant.id,
+      tenantId: variant.tenantId,
+      status: variant.status,
+      name: variant.name,
+      code: variant.sku,
+      data: variant,
+    });
+  }
+
+  private async mirrorInventoryImport(importJob: {
+    id: string;
+    tenantId: string;
+    locationId?: string | null;
+    uploadedById?: string | null;
+    fileName: string;
+    status: InventoryImportStatus;
+  }) {
+    await this.appwriteMirror.upsertOperationalRow('inventoryImports', {
+      id: importJob.id,
+      tenantId: importJob.tenantId,
+      locationId: importJob.locationId,
+      createdById: importJob.uploadedById,
+      status: importJob.status,
+      name: importJob.fileName,
+      data: importJob,
+    });
   }
 
   private parseImportFile(sourceFileText: string) {

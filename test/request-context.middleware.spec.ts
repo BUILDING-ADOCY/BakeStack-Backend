@@ -24,6 +24,15 @@ function createRequest(
 }
 
 describe('RequestContextMiddleware', () => {
+  const prisma = {
+    location: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'location-1' }),
+    },
+    userRoleAssignment: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'assignment-1' }),
+    },
+  } as any;
+
   it('hydrates request context with validated security identity', async () => {
     const securityAuthClient = {
       validateRequestSession: jest.fn().mockResolvedValue({
@@ -71,6 +80,7 @@ describe('RequestContextMiddleware', () => {
       }),
       securityAuthClient,
       identityProvisioningService,
+      prisma,
     );
     const request = createRequest(
       {
@@ -95,7 +105,7 @@ describe('RequestContextMiddleware', () => {
       tenantId: 'tenant-1',
       locationId: 'location-1',
       authenticated: true,
-      actorId: 'user-1',
+      actorId: 'backend-user-1',
       organizationId: 'org-1',
     });
     expect(request.query).toMatchObject({
@@ -161,6 +171,7 @@ describe('RequestContextMiddleware', () => {
       }),
       securityAuthClient,
       identityProvisioningService,
+      prisma,
     );
     const request = createRequest(
       {

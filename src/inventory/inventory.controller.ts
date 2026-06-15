@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  Param,
+  ParseUUIDPipe,
   Post,
   Query,
   Req,
@@ -44,6 +47,21 @@ export class InventoryController {
     return {
       data: await this.inventoryService.createItem(dto),
       message: 'Inventory item created successfully',
+    };
+  }
+
+  @Delete('items/:id')
+  async removeItem(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: OptionalTenantScopeDto,
+  ) {
+    return {
+      data: await this.inventoryService.removeItem(
+        resolveTenantId(request, query.tenantId),
+        id,
+      ),
+      message: 'Inventory item archived successfully',
     };
   }
 

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -10,7 +11,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsNumber, Min } from 'class-validator';
+import { IsNumber, IsUUID, Min } from 'class-validator';
 import type { Request } from 'express';
 import { OptionalTenantScopeDto } from '../common/dto/optional-tenant-scope.dto';
 import { resolveTenantId } from '../common/utils/resolve-tenant-id';
@@ -20,6 +21,9 @@ import { UpdateRecipeDto } from './dto/update-recipe.dto';
 import { RecipesService } from './recipes.service';
 
 class RecipeCostingQueryDto extends OptionalTenantScopeDto {
+  @IsUUID()
+  locationId!: string;
+
   @Type(() => Number)
   @IsNumber()
   @Min(0.0001)
@@ -96,6 +100,21 @@ export class RecipesController {
     };
   }
 
+  @Delete(':id')
+  async remove(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: OptionalTenantScopeDto,
+  ) {
+    return {
+      data: await this.recipesService.remove(
+        resolveTenantId(request, query.tenantId),
+        id,
+      ),
+      message: 'Recipe archived successfully',
+    };
+  }
+
   @Get(':id/costing')
   async getCosting(
     @Req() request: Request,
@@ -105,15 +124,12 @@ export class RecipesController {
     const tenantId = resolveTenantId(request, query.tenantId);
 
     return {
-      data: {
-        costing: await this.recipesService.calculateRecipeCost(tenantId, id),
-        requiredIngredients:
-          await this.recipesService.calculateRequiredIngredients(
-            tenantId,
-            id,
-            query.plannedQty,
-          ),
-      },
+      data: await this.recipesService.calculateRecipeCosting(
+        tenantId,
+        id,
+        query.locationId,
+        query.plannedQty,
+      ),
       message: 'Recipe costing calculated successfully',
     };
   }

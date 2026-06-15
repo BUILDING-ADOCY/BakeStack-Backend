@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { AppwriteMirrorService } from '../appwrite/appwrite-mirror.service';
 import { AuditService } from '../audit/audit.service';
 import { DomainException } from '../common/exceptions/domain.exception';
+import { getInventoryItemMoneySettings } from '../common/prisma/location-money';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { decimal } from '../common/utils/decimal.util';
 import { CreateRecipeDto } from './dto/create-recipe.dto';
@@ -13,12 +15,13 @@ export class RecipesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly appwriteMirror: AppwriteMirrorService,
   ) {}
 
   async create(dto: CreateRecipeDto) {
     await this.ensureVariantExists(dto.tenantId, dto.productVariantId);
 
-    return this.prisma.$transaction(async (tx) => {
+    const recipe = await this.prisma.$transaction(async (tx) => {
       const recipe = await tx.recipe.create({
         data: {
           tenantId: dto.tenantId,
@@ -68,6 +71,10 @@ export class RecipesService {
 
       return recipe;
     });
+
+    await this.mirrorRecipe(recipe);
+
+    return recipe;
   }
 
   findAll(query: QueryRecipesDto) {
@@ -123,7 +130,7 @@ export class RecipesService {
       throw new DomainException('RECIPE_NOT_FOUND', 'Recipe not found', 404);
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       if (dto.components) {
         await tx.recipeComponent.deleteMany({
           where: { tenantId, recipeId: recipe.id },
@@ -172,6 +179,14 @@ export class RecipesService {
 
       return updated;
     });
+
+    if (updated.deletedAt) {
+      await this.appwriteMirror.deleteOperationalRow('recipes', updated.id);
+    } else {
+      await this.mirrorRecipe(updated);
+    }
+
+    return updated;
   }
 
   async activate(tenantId: string, id: string) {
@@ -183,7 +198,7 @@ export class RecipesService {
       throw new DomainException('RECIPE_NOT_FOUND', 'Recipe not found', 404);
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       await tx.recipe.updateMany({
         where: {
           tenantId,
@@ -216,25 +231,143 @@ export class RecipesService {
 
       return updated;
     });
+
+    await this.mirrorRecipe(updated);
+
+    return updated;
   }
 
-  async calculateRecipeCost(tenantId: string, recipeId: string) {
-    const recipe = await this.findRecipeForCalculation(tenantId, recipeId);
-    const costPerBatch = recipe.components.reduce(
-      (accumulator, component) =>
-        accumulator.add(
-          component.quantity
-            .mul(component.inventoryItem.unitCost)
-            .mul(decimal(1).add(component.lossFactorPercent.div(decimal(100)))),
-        ),
-      decimal(0),
+  async remove(tenantId: string, id: string) {
+    const recipe = await this.prisma.recipe.findFirst({
+      where: { tenantId, id, deletedAt: null },
+    });
+
+    if (!recipe) {
+      throw new DomainException('RECIPE_NOT_FOUND', 'Recipe not found', 404);
+    }
+
+    const updated = await this.prisma.recipe.update({
+      where: { id: recipe.id },
+      data: {
+        status: 'ARCHIVED',
+        isActive: false,
+        deletedAt: new Date(),
+      },
+    });
+
+    await this.auditService.log({
+      tenantId,
+      action: 'recipe.archived',
+      entityType: 'Recipe',
+      entityId: updated.id,
+      beforeJson: recipe as unknown as Prisma.InputJsonValue,
+      afterJson: updated as unknown as Prisma.InputJsonValue,
+    });
+
+    await this.appwriteMirror.deleteOperationalRow('recipes', updated.id);
+
+    return updated;
+  }
+
+  private async mirrorRecipe(recipe: {
+    id: string;
+    tenantId: string;
+    productVariantId: string;
+    status: string;
+    name: string;
+    createdById?: string | null;
+  }) {
+    await this.appwriteMirror.upsertOperationalRow('recipes', {
+      id: recipe.id,
+      tenantId: recipe.tenantId,
+      createdById: recipe.createdById,
+      status: recipe.status,
+      name: recipe.name,
+      code: recipe.productVariantId,
+      data: recipe,
+    });
+  }
+
+  async calculateRecipeCost(
+    tenantId: string,
+    recipeId: string,
+    locationId: string,
+  ) {
+    const preview = await this.calculateRecipeCosting(
+      tenantId,
+      recipeId,
+      locationId,
+      1,
     );
 
+    return preview.costing;
+  }
+
+  async calculateRecipeCosting(
+    tenantId: string,
+    recipeId: string,
+    locationId: string,
+    plannedQty: number,
+  ) {
+    const recipe = await this.findRecipeForCalculation(tenantId, recipeId);
+    const { currencyCode, settings, missingSettingIds } =
+      await getInventoryItemMoneySettings(this.prisma, {
+        tenantId,
+        locationId,
+        inventoryItemIds: recipe.components.map(
+          (component) => component.inventoryItemId,
+        ),
+      });
+    // A missing ingredient price never contributes a silent 0 — it is excluded
+    // from the rolled-up cost and surfaced via costIncomplete instead.
+    const costIncomplete = missingSettingIds.length > 0;
+    const costPerBatch = recipe.components.reduce((accumulator, component) => {
+      const setting = settings.get(component.inventoryItemId);
+      if (!setting?.unitCost) {
+        return accumulator;
+      }
+      return accumulator.add(
+        component.quantity
+          .mul(setting.unitCost)
+          .mul(decimal(1).add(component.lossFactorPercent.div(decimal(100)))),
+      );
+    }, decimal(0));
+    // Guard divide-by-zero: a recipe that yields nothing has no per-unit cost.
+    const costPerYieldUnit = recipe.batchYieldQty.greaterThan(0)
+      ? costPerBatch.div(recipe.batchYieldQty)
+      : decimal(0);
+    const requiredIngredients = this.scaleRequiredIngredients(
+      recipe.components,
+      recipe.batchYieldQty,
+      plannedQty,
+    ).map((ingredient) => {
+      const unitCost =
+        settings.get(ingredient.inventoryItemId)?.unitCost ?? null;
+      const totalCost = unitCost
+        ? ingredient.requiredQty
+            .mul(unitCost)
+            .mul(decimal(1).add(ingredient.lossFactorPercent.div(decimal(100))))
+        : null;
+
+      return {
+        ...ingredient,
+        unitCost,
+        totalCost,
+      };
+    });
+
     return {
-      recipeId: recipe.id,
-      costPerBatch,
-      costPerYieldUnit: costPerBatch.div(recipe.batchYieldQty),
-      yieldUom: recipe.yieldUom,
+      costing: {
+        recipeId: recipe.id,
+        locationId,
+        currencyCode,
+        costPerBatch,
+        costPerYieldUnit,
+        yieldUom: recipe.yieldUom,
+        costIncomplete,
+        missingInventoryItemIds: missingSettingIds,
+      },
+      requiredIngredients,
     };
   }
 
@@ -244,13 +377,34 @@ export class RecipesService {
     plannedQty: number,
   ) {
     const recipe = await this.findRecipeForCalculation(tenantId, recipeId);
+
+    return this.scaleRequiredIngredients(
+      recipe.components,
+      recipe.batchYieldQty,
+      plannedQty,
+    );
+  }
+
+  private scaleRequiredIngredients(
+    components: Array<{
+      inventoryItemId: string;
+      inventoryItem: { name: string };
+      quantity: Prisma.Decimal;
+      uom: string;
+      lossFactorPercent: Prisma.Decimal;
+    }>,
+    batchYieldQty: Prisma.Decimal,
+    plannedQty: number,
+  ) {
     const planned = decimal(plannedQty);
 
-    return recipe.components.map((component) => ({
+    return components.map((component) => ({
       inventoryItemId: component.inventoryItemId,
       inventoryItemName: component.inventoryItem.name,
       uom: component.uom,
-      requiredQty: component.quantity.mul(planned).div(recipe.batchYieldQty),
+      requiredQty: batchYieldQty.greaterThan(0)
+        ? component.quantity.mul(planned).div(batchYieldQty)
+        : decimal(0),
       lossFactorPercent: component.lossFactorPercent,
     }));
   }

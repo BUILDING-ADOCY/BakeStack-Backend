@@ -7,8 +7,17 @@ import {
 import { AuditService } from '../audit/audit.service';
 import { DomainException } from '../common/exceptions/domain.exception';
 import { applyInventoryDelta } from '../common/prisma/inventory-ledger';
+import {
+  requireInventoryItemMoneySettings,
+  requireLocationCurrency,
+} from '../common/prisma/location-money';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { decimal } from '../common/utils/decimal.util';
+import {
+  minorToMajor,
+  rateTimesQtyToMinor,
+  sumMinor,
+} from '../common/utils/money.util';
 import { RecipesService } from '../recipes/recipes.service';
 import { BatchActionDto } from './dto/batch-action.dto';
 import { CompleteBatchDto } from './dto/complete-batch.dto';
@@ -133,6 +142,49 @@ export class ProductionService {
         recipe.id,
         dto.plannedQty,
       );
+    const currencyCode = await requireLocationCurrency(this.prisma, {
+      tenantId: dto.tenantId,
+      locationId: dto.locationId,
+    });
+    const inventoryItemIds = requiredIngredients.map(
+      (ingredient) => ingredient.inventoryItemId,
+    );
+    const locationSettings =
+      await this.prisma.locationInventoryItemSetting.findMany({
+        where: {
+          tenantId: dto.tenantId,
+          locationId: dto.locationId,
+          inventoryItemId: { in: inventoryItemIds },
+          isStocked: { not: false },
+        },
+      });
+    const settings = new Map(
+      locationSettings
+        .filter(
+          (setting) =>
+            setting.unitCost && setting.currencyCode === currencyCode,
+        )
+        .map((setting) => [setting.inventoryItemId, setting]),
+    );
+    const legacyUnitCosts = new Map(
+      recipe.components.map((component) => [
+        component.inventoryItemId,
+        component.inventoryItem.unitCost,
+      ]),
+    );
+    const hasCompleteMoneySetup = requiredIngredients.every((ingredient) =>
+      settings.has(ingredient.inventoryItemId),
+    );
+    const estimatedCost = hasCompleteMoneySetup
+      ? sumMinor(
+          requiredIngredients.map((ingredient) =>
+            rateTimesQtyToMinor(
+              settings.get(ingredient.inventoryItemId)!.unitCost!,
+              ingredient.requiredQty,
+            ),
+          ),
+        )
+      : undefined;
 
     return this.prisma.$transaction(async (tx) => {
       const batch = await tx.productionBatch.create({
@@ -143,6 +195,8 @@ export class ProductionService {
           recipeId: recipe.id,
           batchNumber: dto.batchNumber ?? `BATCH-${Date.now()}`,
           plannedQty: decimal(dto.plannedQty),
+          estimatedCost,
+          currencyCode,
           createdById: dto.createdById,
           items: {
             create: {
@@ -159,11 +213,11 @@ export class ProductionService {
               consumedQty: decimal(0),
               uom: ingredient.uom,
               unitCost:
-                recipe.components.find(
-                  (component) =>
-                    component.inventoryItemId === ingredient.inventoryItemId,
-                )?.inventoryItem.unitCost ?? decimal(0),
-              totalCost: decimal(0),
+                settings.get(ingredient.inventoryItemId)?.unitCost ??
+                legacyUnitCosts.get(ingredient.inventoryItemId) ??
+                decimal(0),
+              totalCost: 0,
+              currencyCode,
             })),
           },
         },
@@ -191,7 +245,18 @@ export class ProductionService {
 
   async approveBatch(id: string, action: BatchActionDto) {
     const tenantId = this.requireActionTenantId(action.tenantId);
-    const batch = await this.requireBatch(tenantId, id);
+    const batch = await this.prisma.productionBatch.findFirst({
+      where: { tenantId, id },
+      include: { consumptions: true },
+    });
+
+    if (!batch) {
+      throw new DomainException(
+        'PRODUCTION_BATCH_NOT_FOUND',
+        'Production batch not found',
+        404,
+      );
+    }
 
     if (batch.status !== ProductionBatchStatus.PLANNED) {
       throw new DomainException(
@@ -200,6 +265,14 @@ export class ProductionService {
         409,
       );
     }
+
+    await requireInventoryItemMoneySettings(this.prisma, {
+      tenantId,
+      locationId: batch.locationId,
+      inventoryItemIds: batch.consumptions.map(
+        (consumption) => consumption.inventoryItemId,
+      ),
+    });
 
     return this.prisma.productionBatch.update({
       where: { id: batch.id },
@@ -238,6 +311,14 @@ export class ProductionService {
         409,
       );
     }
+
+    await requireInventoryItemMoneySettings(this.prisma, {
+      tenantId,
+      locationId: batch.locationId,
+      inventoryItemIds: batch.consumptions.map(
+        (consumption) => consumption.inventoryItemId,
+      ),
+    });
 
     await this.ensureSufficientStock(
       batch.tenantId,
@@ -282,7 +363,7 @@ export class ProductionService {
             inventoryItemId: consumption.inventoryItemId,
             lotId: balance.lotId,
             quantityDelta: quantityToConsume.negated(),
-            unitCost: consumption.inventoryItem.unitCost,
+            unitCost: consumption.unitCost,
             movementType: InventoryMovementType.PRODUCTION_CONSUMPTION,
             referenceType: 'ProductionBatch',
             referenceId: batch.id,
@@ -305,8 +386,9 @@ export class ProductionService {
           data: {
             lotId: allocatedLotId,
             consumedQty: consumption.requiredQty,
-            totalCost: consumption.requiredQty.mul(
-              consumption.inventoryItem.unitCost,
+            totalCost: rateTimesQtyToMinor(
+              consumption.unitCost,
+              consumption.requiredQty,
             ),
           },
         });
@@ -383,12 +465,11 @@ export class ProductionService {
     const outputQty = decimal(
       action.actualOutputQty ?? Number(batch.plannedQty),
     );
-    const totalConsumedCost = batch.consumptions.reduce(
-      (sum, consumption) => sum.add(consumption.totalCost),
-      decimal(0),
+    const totalConsumedCost = sumMinor(
+      batch.consumptions.map((consumption) => consumption.totalCost),
     );
     const unitCost = outputQty.greaterThan(0)
-      ? totalConsumedCost.div(outputQty)
+      ? decimal(minorToMajor(totalConsumedCost)).div(outputQty)
       : decimal(0);
 
     return this.prisma.$transaction(async (tx) => {
@@ -424,6 +505,7 @@ export class ProductionService {
           uom: batch.recipe.productVariant.unit,
           unitCost,
           totalCost: totalConsumedCost,
+          currencyCode: batch.currencyCode,
         },
       });
 

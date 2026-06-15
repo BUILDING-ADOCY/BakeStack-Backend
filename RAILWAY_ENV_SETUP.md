@@ -45,7 +45,7 @@ The security-service crash you pasted later came from:
 4. Add `DATABASE_URL` as a reference variable from the Railway Postgres service.
 5. Add `SECURITY_BASE_URL` pointing to the deployed security service.
 6. Add `SECURITY_INTERNAL_SERVICE_API_KEY` and make sure the same value exists in the security service as `INTERNAL_SERVICE_API_KEY`.
-7. Add `CORS_ORIGINS` with your production UI URL.
+7. Add `CORS_ORIGINS` with your production UI URL. For the current deployment, use `https://bakestack.netlify.app`.
 8. Redeploy the service.
 
 ### Railway CLI commands
@@ -57,7 +57,7 @@ railway variables set DATABASE_URL='${{Postgres.DATABASE_URL}}' --service BakeSt
 railway variables set NODE_ENV='production' --service BakeStack-Backend --environment production
 railway variables set PORT='3010' --service BakeStack-Backend --environment production
 railway variables set HOST='0.0.0.0' --service BakeStack-Backend --environment production
-railway variables set CORS_ORIGINS='https://your-frontend-domain.com' --service BakeStack-Backend --environment production
+railway variables set CORS_ORIGINS='https://bakestack.netlify.app' --service BakeStack-Backend --environment production
 railway variables set SECURITY_BASE_URL='https://your-security-service.up.railway.app' --service BakeStack-Backend --environment production
 railway variables set SECURITY_INTERNAL_SERVICE_API_KEY='CHANGE_ME_SHARED_INTERNAL_API_KEY' --service BakeStack-Backend --environment production
 railway variables set SECURITY_INTERNAL_SERVICE_NAME='bakestake-backend' --service BakeStack-Backend --environment production

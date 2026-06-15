@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -12,9 +13,12 @@ import {
 import type { Request } from 'express';
 import { IdentityProvisioningService } from '../auth/identity-provisioning.service';
 import { CreateLocationDto } from './dto/create-location.dto';
+import { UpsertInventoryItemSettingDto } from './dto/upsert-inventory-item-setting.dto';
 import { UpdateOpeningHoursDto } from './dto/update-opening-hours.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
 import { UpsertLocationProfileDto } from './dto/upsert-location-profile.dto';
+import { UpsertProductVariantSettingDto } from './dto/upsert-product-variant-setting.dto';
+import { UpsertSupplierItemSettingDto } from './dto/upsert-supplier-item-setting.dto';
 import { LocationsService } from './locations.service';
 
 @Controller('locations')
@@ -91,6 +95,286 @@ export class LocationsController {
         dto,
       ),
       message: 'Location updated successfully',
+    };
+  }
+
+  @Get(':id/money-readiness')
+  async getMoneyReadiness(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const scope =
+      await this.identityProvisioningService.ensureProvisionedFromRequest(
+        request,
+      );
+
+    return {
+      data: await this.locationsService.getMoneyReadiness(scope.tenant.id, id),
+      message: 'Location money readiness retrieved successfully',
+    };
+  }
+
+  @Get(':id/local-settings/product-variants')
+  async findProductVariantSettings(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const scope =
+      await this.identityProvisioningService.ensureProvisionedFromRequest(
+        request,
+      );
+
+    return {
+      data: await this.locationsService.findProductVariantSettings(
+        scope.tenant.id,
+        id,
+      ),
+      message: 'Location product variant settings retrieved successfully',
+    };
+  }
+
+  @Get(':id/local-settings/product-variants/:productVariantId')
+  async findProductVariantSetting(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('productVariantId', ParseUUIDPipe) productVariantId: string,
+  ) {
+    const scope =
+      await this.identityProvisioningService.ensureProvisionedFromRequest(
+        request,
+      );
+
+    return {
+      data: await this.locationsService.findProductVariantSetting(
+        scope.tenant.id,
+        id,
+        productVariantId,
+      ),
+      message: 'Location product variant setting retrieved successfully',
+    };
+  }
+
+  @Put(':id/local-settings/product-variants/:productVariantId')
+  async upsertProductVariantSetting(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('productVariantId', ParseUUIDPipe) productVariantId: string,
+    @Body() dto: UpsertProductVariantSettingDto,
+  ) {
+    const scope =
+      await this.identityProvisioningService.ensureProvisionedFromRequest(
+        request,
+      );
+
+    return {
+      data: await this.locationsService.upsertProductVariantSetting(
+        scope.tenant.id,
+        id,
+        productVariantId,
+        scope.user.id,
+        request.context?.correlationId,
+        dto,
+      ),
+      message: 'Location product variant setting saved successfully',
+    };
+  }
+
+  @Delete(':id/local-settings/product-variants/:productVariantId')
+  async deleteProductVariantSetting(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('productVariantId', ParseUUIDPipe) productVariantId: string,
+  ) {
+    const scope =
+      await this.identityProvisioningService.ensureProvisionedFromRequest(
+        request,
+      );
+
+    return {
+      data: await this.locationsService.deleteProductVariantSetting(
+        scope.tenant.id,
+        id,
+        productVariantId,
+        scope.user.id,
+        request.context?.correlationId,
+      ),
+      message: 'Location product variant setting deleted successfully',
+    };
+  }
+
+  @Get(':id/local-settings/inventory-items')
+  async findInventoryItemSettings(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const scope =
+      await this.identityProvisioningService.ensureProvisionedFromRequest(
+        request,
+      );
+
+    return {
+      data: await this.locationsService.findInventoryItemSettings(
+        scope.tenant.id,
+        id,
+      ),
+      message: 'Location inventory item settings retrieved successfully',
+    };
+  }
+
+  @Get(':id/local-settings/inventory-items/:inventoryItemId')
+  async findInventoryItemSetting(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('inventoryItemId', ParseUUIDPipe) inventoryItemId: string,
+  ) {
+    const scope =
+      await this.identityProvisioningService.ensureProvisionedFromRequest(
+        request,
+      );
+
+    return {
+      data: await this.locationsService.findInventoryItemSetting(
+        scope.tenant.id,
+        id,
+        inventoryItemId,
+      ),
+      message: 'Location inventory item setting retrieved successfully',
+    };
+  }
+
+  @Put(':id/local-settings/inventory-items/:inventoryItemId')
+  async upsertInventoryItemSetting(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('inventoryItemId', ParseUUIDPipe) inventoryItemId: string,
+    @Body() dto: UpsertInventoryItemSettingDto,
+  ) {
+    const scope =
+      await this.identityProvisioningService.ensureProvisionedFromRequest(
+        request,
+      );
+
+    return {
+      data: await this.locationsService.upsertInventoryItemSetting(
+        scope.tenant.id,
+        id,
+        inventoryItemId,
+        scope.user.id,
+        request.context?.correlationId,
+        dto,
+      ),
+      message: 'Location inventory item setting saved successfully',
+    };
+  }
+
+  @Delete(':id/local-settings/inventory-items/:inventoryItemId')
+  async deleteInventoryItemSetting(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('inventoryItemId', ParseUUIDPipe) inventoryItemId: string,
+  ) {
+    const scope =
+      await this.identityProvisioningService.ensureProvisionedFromRequest(
+        request,
+      );
+
+    return {
+      data: await this.locationsService.deleteInventoryItemSetting(
+        scope.tenant.id,
+        id,
+        inventoryItemId,
+        scope.user.id,
+        request.context?.correlationId,
+      ),
+      message: 'Location inventory item setting deleted successfully',
+    };
+  }
+
+  @Get(':id/local-settings/supplier-items')
+  async findSupplierItemSettings(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const scope =
+      await this.identityProvisioningService.ensureProvisionedFromRequest(
+        request,
+      );
+
+    return {
+      data: await this.locationsService.findSupplierItemSettings(
+        scope.tenant.id,
+        id,
+      ),
+      message: 'Location supplier item settings retrieved successfully',
+    };
+  }
+
+  @Get(':id/local-settings/supplier-items/:supplierItemId')
+  async findSupplierItemSetting(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('supplierItemId', ParseUUIDPipe) supplierItemId: string,
+  ) {
+    const scope =
+      await this.identityProvisioningService.ensureProvisionedFromRequest(
+        request,
+      );
+
+    return {
+      data: await this.locationsService.findSupplierItemSetting(
+        scope.tenant.id,
+        id,
+        supplierItemId,
+      ),
+      message: 'Location supplier item setting retrieved successfully',
+    };
+  }
+
+  @Put(':id/local-settings/supplier-items/:supplierItemId')
+  async upsertSupplierItemSetting(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('supplierItemId', ParseUUIDPipe) supplierItemId: string,
+    @Body() dto: UpsertSupplierItemSettingDto,
+  ) {
+    const scope =
+      await this.identityProvisioningService.ensureProvisionedFromRequest(
+        request,
+      );
+
+    return {
+      data: await this.locationsService.upsertSupplierItemSetting(
+        scope.tenant.id,
+        id,
+        supplierItemId,
+        scope.user.id,
+        request.context?.correlationId,
+        dto,
+      ),
+      message: 'Location supplier item setting saved successfully',
+    };
+  }
+
+  @Delete(':id/local-settings/supplier-items/:supplierItemId')
+  async deleteSupplierItemSetting(
+    @Req() request: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('supplierItemId', ParseUUIDPipe) supplierItemId: string,
+  ) {
+    const scope =
+      await this.identityProvisioningService.ensureProvisionedFromRequest(
+        request,
+      );
+
+    return {
+      data: await this.locationsService.deleteSupplierItemSetting(
+        scope.tenant.id,
+        id,
+        supplierItemId,
+        scope.user.id,
+        request.context?.correlationId,
+      ),
+      message: 'Location supplier item setting deleted successfully',
     };
   }
 

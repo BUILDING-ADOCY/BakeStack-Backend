@@ -1,19 +1,5 @@
 type BackendEnv = Record<string, string | undefined>;
 
-const REQUIRED_KEYS = [
-  'SECURITY_BASE_URL',
-  'SECURITY_INTERNAL_SERVICE_API_KEY',
-];
-
-const assertNonEmpty = (env: BackendEnv, key: string) => {
-  const value = env[key]?.trim();
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${key}`);
-  }
-
-  return value;
-};
-
 const assertNumber = (
   env: BackendEnv,
   key: string,
@@ -68,8 +54,18 @@ const resolveDatabaseUrl = (env: BackendEnv) => {
 export const validateEnv = (rawEnv: BackendEnv) => {
   const databaseUrl = resolveDatabaseUrl(rawEnv);
 
-  for (const key of REQUIRED_KEYS) {
-    assertNonEmpty(rawEnv, key);
+  const hasSecurityBridge = Boolean(
+    rawEnv.SECURITY_BASE_URL?.trim() &&
+    rawEnv.SECURITY_INTERNAL_SERVICE_API_KEY?.trim(),
+  );
+  const hasAppwriteBridge = Boolean(
+    rawEnv.APPWRITE_ENDPOINT?.trim() && rawEnv.APPWRITE_PROJECT_ID?.trim(),
+  );
+
+  if (!hasSecurityBridge && !hasAppwriteBridge) {
+    throw new Error(
+      'Missing auth bridge configuration. Set APPWRITE_ENDPOINT and APPWRITE_PROJECT_ID, or provide SECURITY_BASE_URL and SECURITY_INTERNAL_SERVICE_API_KEY during legacy migration.',
+    );
   }
 
   const port = assertNumber(rawEnv, 'PORT', '3010');
@@ -95,5 +91,10 @@ export const validateEnv = (rawEnv: BackendEnv) => {
       rawEnv.SECURITY_INTERNAL_SERVICE_NAME?.trim() || 'bakestake-backend',
     SECURITY_SESSION_COOKIE_NAME:
       rawEnv.SECURITY_SESSION_COOKIE_NAME?.trim() || 'bk_session',
+    APPWRITE_DATABASE_ID: rawEnv.APPWRITE_DATABASE_ID?.trim() || 'bakestack',
+    SUPPLIER_MESSAGING_DEFAULT_CHANNEL:
+      rawEnv.SUPPLIER_MESSAGING_DEFAULT_CHANNEL?.trim() || 'EMAIL',
+    SUPPLIER_MESSAGING_FROM_NAME:
+      rawEnv.SUPPLIER_MESSAGING_FROM_NAME?.trim() || 'BakeStack',
   };
 };

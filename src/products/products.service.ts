@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, ProductImportStatus, ProductStatus } from '@prisma/client';
 import { parse } from 'csv-parse/sync';
 import * as XLSX from 'xlsx';
+import { AppwriteMirrorService } from '../appwrite/appwrite-mirror.service';
 import { AuditService } from '../audit/audit.service';
 import { DomainException } from '../common/exceptions/domain.exception';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -89,6 +90,7 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly appwriteMirror: AppwriteMirrorService,
   ) {}
 
   createCategory(
@@ -107,8 +109,8 @@ export class ProductsService {
     });
   }
 
-  create(dto: CreateProductDto, executor: ProductExecutor = this.prisma) {
-    return executor.product.create({
+  async create(dto: CreateProductDto, executor: ProductExecutor = this.prisma) {
+    const product = await executor.product.create({
       data: {
         tenantId: dto.tenantId,
         categoryId: dto.categoryId,
@@ -119,6 +121,12 @@ export class ProductsService {
         shelfLifeHours: dto.shelfLifeHours,
       },
     });
+
+    if (executor === this.prisma) {
+      await this.mirrorProduct(product);
+    }
+
+    return product;
   }
 
   findAll(tenantId: string) {
@@ -177,7 +185,7 @@ export class ProductsService {
       throw new DomainException('PRODUCT_NOT_FOUND', 'Product not found', 404);
     }
 
-    return this.prisma.product.update({
+    const product = await this.prisma.product.update({
       where: { id: record.id },
       data: {
         categoryId: dto.categoryId,
@@ -188,24 +196,80 @@ export class ProductsService {
         shelfLifeHours: dto.shelfLifeHours,
       },
     });
+
+    await this.mirrorProduct(product);
+
+    return product;
   }
 
   async remove(tenantId: string, id: string) {
     const record = await this.prisma.product.findFirst({
       where: { tenantId, id, deletedAt: null },
+      include: {
+        variants: {
+          where: { deletedAt: null },
+          select: { id: true },
+        },
+      },
     });
 
     if (!record) {
       throw new DomainException('PRODUCT_NOT_FOUND', 'Product not found', 404);
     }
 
-    return this.prisma.product.update({
-      where: { id: record.id },
-      data: {
-        status: 'ARCHIVED',
-        deletedAt: new Date(),
-      },
+    const deletedAt = new Date();
+    const variantIds = record.variants.map((variant) => variant.id);
+    const locationSettingIds =
+      variantIds.length > 0
+        ? await this.prisma.locationProductVariantSetting.findMany({
+            where: {
+              tenantId,
+              productVariantId: { in: variantIds },
+            },
+            select: { id: true },
+          })
+        : [];
+
+    const product = await this.prisma.$transaction(async (tx) => {
+      const updatedProduct = await tx.product.update({
+        where: { id: record.id },
+        data: {
+          status: ProductStatus.ARCHIVED,
+          deletedAt,
+        },
+      });
+
+      if (variantIds.length > 0) {
+        await tx.productVariant.updateMany({
+          where: {
+            tenantId,
+            id: { in: variantIds },
+            deletedAt: null,
+          },
+          data: {
+            status: ProductStatus.ARCHIVED,
+            deletedAt,
+          },
+        });
+      }
+
+      return updatedProduct;
     });
+
+    await Promise.all([
+      this.appwriteMirror.deleteOperationalRow('products', product.id),
+      ...variantIds.map((variantId) =>
+        this.appwriteMirror.deleteOperationalRow('productVariants', variantId),
+      ),
+      ...locationSettingIds.map((setting) =>
+        this.appwriteMirror.deleteOperationalRow(
+          'locationProductVariantSettings',
+          setting.id,
+        ),
+      ),
+    ]);
+
+    return product;
   }
 
   async createVariant(
@@ -224,7 +288,7 @@ export class ProductsService {
       );
     }
 
-    return executor.productVariant.create({
+    const variant = await executor.productVariant.create({
       data: {
         ...dto,
         defaultSellingPrice:
@@ -233,6 +297,12 @@ export class ProductsService {
             : new Prisma.Decimal(dto.defaultSellingPrice),
       },
     });
+
+    if (executor === this.prisma) {
+      await this.mirrorProductVariant(variant);
+    }
+
+    return variant;
   }
 
   async updateVariant(
@@ -252,7 +322,7 @@ export class ProductsService {
       );
     }
 
-    return this.prisma.productVariant.update({
+    const updatedVariant = await this.prisma.productVariant.update({
       where: { id: variant.id },
       data: {
         ...dto,
@@ -262,6 +332,10 @@ export class ProductsService {
             : new Prisma.Decimal(dto.defaultSellingPrice),
       },
     });
+
+    await this.mirrorProductVariant(updatedVariant);
+
+    return updatedVariant;
   }
 
   async importFile(dto: CreateProductImportDto, file?: Express.Multer.File) {
@@ -303,6 +377,7 @@ export class ProductsService {
         },
       },
     });
+    await this.mirrorProductImport(importJob);
 
     let processedRows = 0;
     let createdCategoriesCount = 0;
@@ -342,14 +417,25 @@ export class ProductsService {
 
           return {
             categoryCreated: categoryResult?.created ?? false,
+            product: productResult.product,
             productCreated: productResult.created,
             productUpdated: productResult.updated,
+            variant: variantResult?.variant ?? null,
             variantCreated: variantResult?.created ?? false,
             variantUpdated: variantResult?.updated ?? false,
           };
         });
 
         processedRows += 1;
+        if (result.productCreated || result.productUpdated) {
+          await this.mirrorProduct(result.product);
+        }
+        if (
+          result.variant &&
+          (result.variantCreated || result.variantUpdated)
+        ) {
+          await this.mirrorProductVariant(result.variant);
+        }
         if (result.categoryCreated) {
           createdCategoriesCount += 1;
         }
@@ -415,6 +501,7 @@ export class ProductsService {
       },
       select: PRODUCT_IMPORT_SELECT,
     });
+    await this.mirrorProductImport(updatedImport);
 
     await this.auditService.log({
       tenantId: dto.tenantId,
@@ -748,6 +835,48 @@ export class ProductsService {
       created: false,
       updated: true,
     };
+  }
+
+  private async mirrorProduct(
+    product: Prisma.ProductGetPayload<Record<string, never>>,
+  ) {
+    await this.appwriteMirror.upsertOperationalRow('products', {
+      id: product.id,
+      tenantId: product.tenantId,
+      status: product.status,
+      name: product.name,
+      data: product,
+    });
+  }
+
+  private async mirrorProductVariant(
+    variant: Prisma.ProductVariantGetPayload<Record<string, never>>,
+  ) {
+    await this.appwriteMirror.upsertOperationalRow('productVariants', {
+      id: variant.id,
+      tenantId: variant.tenantId,
+      status: variant.status,
+      name: variant.name,
+      code: variant.sku,
+      data: variant,
+    });
+  }
+
+  private async mirrorProductImport(importJob: {
+    id: string;
+    tenantId: string;
+    uploadedById?: string | null;
+    fileName: string;
+    status: ProductImportStatus;
+  }) {
+    await this.appwriteMirror.upsertOperationalRow('productImports', {
+      id: importJob.id,
+      tenantId: importJob.tenantId,
+      createdById: importJob.uploadedById,
+      status: importJob.status,
+      name: importJob.fileName,
+      data: importJob,
+    });
   }
 
   private parseImportFile(file: Express.Multer.File): ParsedProductImportFile {
